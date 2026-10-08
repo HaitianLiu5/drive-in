@@ -11,6 +11,10 @@ This is an npm workspaces repository:
 - `cli/` — published `@drive-in/cli` HTTP client
 - `skills/drive-in/` — agent instructions for operating a running server
 
+## Planned direction
+
+Drive-In is being redesigned into Yolo: an agent-driven media service (Cloudflare control plane, home media node, MCP) with Drive-In as its Tesla client. This is design-only; nothing is implemented yet. Read `docs/yolo-decisions.md` for the decisions and open questions, and `docs/yolo-v1.md` for the draft protocol, before proposing architecture changes.
+
 ## Commands
 
 ```bash
