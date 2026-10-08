@@ -67,7 +67,7 @@ v1 不做，但协议要给它们留位置：
 |---|---|
 | Agent（Claude、ChatGPT） | 动态客户端注册（RFC 7591）+ 授权码 + PKCE。元数据放在 `/.well-known/oauth-authorization-server` 和 `/.well-known/oauth-protected-resource`（RFC 9728） |
 | 浏览器、手机 | 授权码 + PKCE |
-| 特斯拉、电视 | 设备码流程（RFC 8628）。车机屏幕显示一个码，用户在手机上打开 `/device` 输入确认 |
+| 特斯拉、电视 | 设备码流程（RFC 8628）。车机屏幕显示二维码（`verification_uri_complete`）和备用短码；手机扫码打开已填好码的 `/device` 确认页。确认页显示设备名称、类型和发起时间；码 10 分钟过期、只能用一次；必须手动点"允许" |
 | 媒体节点 | 配对时生成 `nodeSecret`，存在节点本地。控制面调用节点时，同时带上 Tunnel service token 和请求签名 |
 
 用户本人登录：v1 用一个管理密码加 passkey（二选一）。授权页和设备确认页都要求先登录。
@@ -287,7 +287,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | `nodes` | id、user_id、地址、密钥哈希、版本 |
 | `queue_items` | 由现在的表迁移过来，`source_type/url/rating_key` 合并成 `source` JSON |
 | `playlists`、`playlist_items` | 同上 |
-| `history` | source_key、标题、进度、时长、播放次数、更新时间。取代 `.play-history.json` |
+| `history` | source_key、标题、进度、时长、播放次数、更新时间。只保留最近 500 条。取代 `.play-history.json` |
 | `track_preferences` | source_key、选择。`default` 行记录最近一次的偏好。取代 `subtitle_preferences` |
 
 播放状态存在 Hub DO 自己的存储里，不进 D1。迁移脚本负责把现有的 SQLite 和 JSON 数据一次性导入 D1。

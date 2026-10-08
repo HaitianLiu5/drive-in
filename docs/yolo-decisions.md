@@ -35,6 +35,9 @@ Agent 目前通过 `@drive-in/cli`（`cli/`）加 `skills/drive-in/SKILL.md` 来
 | 10 | 流量**优先走 Cloudflare** | 用户输入一个网址就能用，这是门槛最低的方式；目前没有产生费用问题 | 局域网直连（以后作为优化） |
 | 11 | 名字叫 **Yolo**；官网 `useyolo.app`；npm 用 `@useyolo/*`；MCP 服务名和插件名都叫 `yolo` | 见下方"命名" | 见下方"命名" |
 | 12 | 在本仓库里**一次性重写**，按模块拆分；改名时再把服务拆到新仓库 | 用户选的。新架构通过 `npm run check`，并且四种流类型都手动验证过之后，才删除旧 server | 渐进替换（strangler 模式） |
+| 13 | 历史只保留**最近 500 条** | 足够找回最近看过的内容，又不会无限增长 | 不设上限 |
+| 14 | 仓库分成 `service/core`、`service/control`、`service/node`、`sdk/js`、`clients/tesla`、`plugin/` | 服务和客户端分开放；改名时 `service/`、`sdk/` 直接搬进新仓库，`clients/tesla` 留下来继续叫 Drive-In | 按运行时分目录 |
+| 15 | 新设备用**扫码配对**：车机显示二维码（RFC 8628 的 `verification_uri_complete`）和备用短码，手机扫码后打开已填好码的确认页 | 车机上不用打字；车机没有摄像头，所以只能车上显示、手机扫。为防设备码钓鱼：确认页醒目显示设备名称、类型和发起时间；码 10 分钟过期、只能用一次；必须手动点"允许" | 只显示短码、手动输入 |
 
 ### 不选 vinext 的原因
 
@@ -92,13 +95,20 @@ Yolo 满足所有条件：所有语音识别器的词表里都有它，"人生�
 
 ## 待定
 
-1. **用户本人怎么登录**：管理密码，还是只用 passkey？
-2. **控制面怎么访问节点**：先用 Tunnel 域名 + service token？还是先验证 Workers VPC 能不能用？
-3. **历史保留多久**：建议只保留最近 500 条。
-4. **仓库怎么组织**：拟定为 `service/core`、`service/control`、`service/node`、`sdk/js`、`clients/tesla`、`plugin/`。
-5. **不用 Cloudflare 能不能自托管**：用户先说过"可以用，只是兼容 Cloudflare"，后来选了方案 B 为主。一个思路是让同一套 Worker 代码在本地的 workerd 上运行，但这需要验证。另一个选择是 v1 先不支持。
-6. **注册 `useyolo.app`**：等用户明确同意再注册，会从 Cloudflare 账号扣费。
-7. **Cloudflare 对视频流量的条款**：CDN 条款要求通过付费服务（Developer Platform、Stream 等）提供视频。按字面理解，经付费 Worker 透传比直接走 Tunnel 更站得住，但没有找到针对 Tunnel 的官方说明。现在用着没问题，不代表条款允许，需要用户自己确认。
+1. **用户本人怎么登录**（接入 agent、批准新设备、打开设置页时，证明"我是主人"；特斯拉本身不登录）。三个选项：
+   - 管理密码：代码最少，但会被钓鱼和暴力破解。
+   - Passkey：Face ID 一下即可，抗钓鱼，不需要额外的后台配置；用一次性初始化码注册，设备全丢时也用它重新注册。
+   - Cloudflare Access：几乎不用写登录代码，但要在 Zero Trust 后台配置，并依赖 Google 账号或邮箱。
+
+   推荐 passkey。门槛要高，是因为节点在局域网里，能替别人抓取任意 URL。
+2. **控制面怎么访问节点**。两个选项：
+   - Tunnel 公网域名 + Access service token：正式版，节点有公网地址，靠 Access 拦截，service token 要定期轮换。
+   - Workers VPC：节点完全没有公网地址，Worker 通过 binding 调用，不需要额外的 token；截至 2026-09 仍是 Beta，期间免费。
+
+   推荐 Workers VPC。对节点的调用统一收进 `nodeFetch()`，切换方式只改配置。开工前先做一个实验：通过 binding 透传真实的 HLS 会话一小时，不通过就改用 Tunnel 域名。
+3. **不用 Cloudflare 能不能自托管**：用户先说过"可以用，只是兼容 Cloudflare"，后来选了方案 B 为主。一个思路是让同一套 Worker 代码在本地的 workerd 上运行，但这需要验证。另一个选择是 v1 先不支持。
+4. **注册 `useyolo.app`**：等用户明确同意再注册，会从 Cloudflare 账号扣费。
+5. **Cloudflare 对视频流量的条款**：CDN 条款要求通过付费服务（Developer Platform、Stream 等）提供视频。按字面理解，经付费 Worker 透传比直接走 Tunnel 更站得住，但没有找到针对 Tunnel 的官方说明。现在用着没问题，不代表条款允许，需要用户自己确认。
 
 ## 去掉 CLI 的清单
 
