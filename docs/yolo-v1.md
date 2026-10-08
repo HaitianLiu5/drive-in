@@ -1,6 +1,6 @@
 # Yolo v1 协议草案
 
-状态：草案，待确认。确认后按此实现，Drive-In 成为第一个客户端。
+状态：草案，待确认。确认后按此实现，Drive-In 成为第一个客户端。背景、决策理由和待定事项见 [yolo-decisions.md](yolo-decisions.md)。
 
 Yolo 是一个私人的、由 agent 驱动的流媒体服务。服务端分两部分：控制面跑在 Cloudflare，媒体节点跑在家里。客户端包括特斯拉 canvas 播放器（Drive-In）、普通浏览器、手机，以及通过 MCP 接入的 agent。
 
@@ -321,7 +321,4 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 ## 11. 待确认
 
-1. **用户本人怎么登录**：v1 用管理密码，还是只用 passkey？
-2. **控制面怎么访问节点**：先用 Tunnel 域名 + service token。Cloudflare 的 Workers VPC 可以把 Tunnel 直接绑定给 Worker，更干净，但需要先验证它的可用性。
-3. **历史保留多久**：建议只保留最近 500 条。
-4. **仓库怎么组织**：`service/core`、`service/control`、`service/node`、`sdk/js`、`clients/tesla`、`plugin/`。确认后，这次重写在本仓库里完成，Drive-In 改名时再拆分出去。
+见 [yolo-decisions.md](yolo-decisions.md#待定)，以那里的列表为准。
