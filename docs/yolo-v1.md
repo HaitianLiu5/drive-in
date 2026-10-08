@@ -50,7 +50,7 @@ v1 不做，但协议要给它们留位置：
    ├ /oauth/*         授权服务器
    ├ /m/*             媒体流，原样透传到节点
    └ D1：用户、设备、令牌、队列、播放列表、历史、音轨偏好
-   │  Cloudflare Tunnel + service token
+   │  Workers VPC binding（经 Cloudflare Tunnel，节点没有公网地址）
    ▼
 媒体节点：家里的 Node（Hono）
    ├ /internal/v1/*   只接受控制面调用
@@ -68,9 +68,9 @@ v1 不做，但协议要给它们留位置：
 | Agent（Claude、ChatGPT） | 动态客户端注册（RFC 7591）+ 授权码 + PKCE。元数据放在 `/.well-known/oauth-authorization-server` 和 `/.well-known/oauth-protected-resource`（RFC 9728） |
 | 浏览器、手机 | 授权码 + PKCE |
 | 特斯拉、电视 | 设备码流程（RFC 8628）。车机屏幕显示二维码（`verification_uri_complete`）和备用短码；手机扫码打开已填好码的 `/device` 确认页。确认页显示设备名称、类型和发起时间；码 10 分钟过期、只能用一次；必须手动点"允许" |
-| 媒体节点 | 配对时生成 `nodeSecret`，存在节点本地。控制面调用节点时，同时带上 Tunnel service token 和请求签名 |
+| 媒体节点 | 控制面通过 Workers VPC binding 访问节点，公网上没有节点地址。配对时生成 `nodeSecret`，用于请求签名（纵深防御）和媒体 URL 的签名密钥 |
 
-用户本人登录：v1 用一个管理密码加 passkey（二选一）。授权页和设备确认页都要求先登录。
+用户本人登录：只用 passkey。部署后第一次打开时，用一次性初始化码（存在 Worker secret 里）注册 passkey；设备全丢时，重置这个初始化码再注册一次。授权页、设备确认页和设置页都要求先登录。
 
 **Scope**
 
@@ -261,7 +261,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 ## 8. 控制面到节点的内部接口
 
-节点只监听 `127.0.0.1`，对外通过 Tunnel 暴露。每个请求都必须同时带上 service token 和 `nodeSecret` 签名。
+节点只监听 `127.0.0.1`，控制面通过 Workers VPC binding（经 Cloudflare Tunnel）访问它，节点没有公网地址。每个请求都带 `nodeSecret` 签名，作为纵深防御。控制面对节点的调用统一走 `nodeFetch()`；如果 Workers VPC 不可用，可以只改配置，切换到"Tunnel 公网域名 + Access service token"。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -281,7 +281,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 | 表 | 内容 |
 |---|---|
-| `users` | id、显示名、密码哈希、passkey |
+| `users`、`passkeys` | 用户 id、显示名；passkey 凭证（credential id、公钥、签名计数） |
 | `devices` | id、user_id、名称、类型、能力、最后在线时间 |
 | `oauth_clients`、`oauth_grants`、`oauth_tokens` | 客户端、授权、token（只存哈希） |
 | `nodes` | id、user_id、地址、密钥哈希、版本 |
