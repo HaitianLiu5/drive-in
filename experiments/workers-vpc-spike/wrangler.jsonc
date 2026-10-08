@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "yolo-spike-vpc",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "vars": {
+    // Address of Drive-In as seen from the machine running cloudflared.
+    "NODE_ORIGIN": "http://localhost:9090",
+    // Existing public tunnel hostname, used as the comparison path.
+    "PUBLIC_ORIGIN": "https://drivein.example.com"
+  },
+  "vpc_services": [
+    {
+      "binding": "NODE",
+      // From `wrangler vpc service create` (see README.md).
+      "service_id": "REPLACE_WITH_VPC_SERVICE_ID",
+      "remote": true
+    }
+  ]
+  // SPIKE_TOKEN is a secret: `npx wrangler secret put SPIKE_TOKEN`.
+}
