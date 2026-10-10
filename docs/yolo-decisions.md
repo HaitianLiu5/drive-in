@@ -39,7 +39,7 @@ Agent 目前通过 `@drive-in/cli`（`cli/`）加 `skills/drive-in/SKILL.md` 来
 | 14 | 仓库分成 `service/core`、`service/control`、`service/node`、`sdk/js`、`clients/tesla`、`plugin/` | 服务和客户端分开放；改名时 `service/`、`sdk/` 直接搬进新仓库，`clients/tesla` 留下来继续叫 Drive-In | 按运行时分目录 |
 | 15 | 新设备用**扫码配对**：车机显示二维码（RFC 8628 的 `verification_uri_complete`）和备用短码，手机扫码后打开已填好码的确认页 | 车机上不用打字；车机没有摄像头，所以只能车上显示、手机扫。为防设备码钓鱼：确认页醒目显示设备名称、类型和发起时间；码 10 分钟过期、只能用一次；必须手动点"允许" | 只显示短码、手动输入 |
 | 16 | 用户本人只用 **passkey** 登录，用一次性初始化码注册和找回 | Face ID 一下即可，抗钓鱼，没有可以泄露的密码；不需要 Zero Trust 后台配置。门槛要高，是因为节点在局域网里，能替别人抓取任意 URL | 管理密码；Cloudflare Access |
-| 17 | 控制面通过 **Workers VPC** 访问节点，调用统一收进 `nodeFetch()`；开工前先实验，透传真实 HLS 会话一小时（代码和步骤见 [experiments/workers-vpc-spike](../experiments/workers-vpc-spike/README.md)，结论待补） | 节点完全没有公网地址，也不需要轮换 token。Workers VPC 截至 2026-09 仍是 Beta，所以要留退路：实验不通过、或 Beta 出问题时，只改配置切换到 Tunnel 公网域名 + Access service token | 直接用 Tunnel 公网域名 + Access service token |
+| 17 | 控制面通过 **Workers VPC** 访问节点，调用统一收进 `nodeFetch()`；开工前先实验，透传真实 HLS 会话一小时（代码和步骤见 [experiments/workers-vpc-spike](../experiments/workers-vpc-spike/README.md)）。2026-10-08 压测通过：60 分钟、每条路径 450 个约 1.5MB 的请求，VPC 路径失败 0 次，慢尾吞吐 p5 16.9 Mbps，首字节时间 p95 125ms，与公网路径的 123ms 持平。压测只覆盖静态文件，用真实播放器看半小时的测试还没做 | 节点完全没有公网地址，也不需要轮换 token。Workers VPC 截至 2026-09 仍是 Beta，所以要留退路：实验不通过、或 Beta 出问题时，只改配置切换到 Tunnel 公网域名 + Access service token | 直接用 Tunnel 公网域名 + Access service token |
 
 ### 不选 vinext 的原因
 
