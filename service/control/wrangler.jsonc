@@ -1,0 +1,57 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "yolo-control",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  // nodejs_compat: AsyncLocalStorage in the Agents SDK MCP handler.
+  // global_fetch_strictly_public: SSRF protection for OAuth Client ID
+  // Metadata Document fetches (required by workers-oauth-provider).
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    // Public origin of this Worker, e.g. https://useyolo.app. It is the OAuth
+    // issuer, the token audience, and the passkey relying party.
+    "PUBLIC_ORIGIN": "https://yolo-control.example.workers.dev",
+    // "vpc" uses the NODE binding below; "tunnel" uses NODE_PUBLIC_ORIGIN with
+    // a Cloudflare Access service token (decision 17).
+    "NODE_TRANSPORT": "vpc",
+    // Address of the node as seen from the machine running cloudflared.
+    "NODE_ORIGIN": "http://127.0.0.1:9191",
+    "NODE_PUBLIC_ORIGIN": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "yolo",
+      // From `npx wrangler d1 create yolo`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      // OAuth clients, grants and token hashes, plus sessions and tickets.
+      "binding": "OAUTH_KV",
+      // From `npx wrangler kv namespace create OAUTH_KV`.
+      "id": "00000000000000000000000000000000"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "HUB", "class_name": "Hub" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub"] }],
+  "vpc_services": [
+    {
+      "binding": "NODE",
+      // From `npx wrangler vpc service create yolo-node --type http
+      //   --tunnel-id <TUNNEL_ID> --ipv4 127.0.0.1 --http-port 9191`.
+      "service_id": "REPLACE_WITH_VPC_SERVICE_ID"
+    }
+  ]
+  // Secrets (npx wrangler secret put …):
+  //   NODE_SECRET               shared with the node; signs requests and media tokens
+  //   OWNER_INIT_CODE           one-time code to register the first passkey
+  //   NODE_ACCESS_CLIENT_ID     only when NODE_TRANSPORT is "tunnel"
+  //   NODE_ACCESS_CLIENT_SECRET only when NODE_TRANSPORT is "tunnel"
+}

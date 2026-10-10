@@ -24,3 +24,7 @@ dist/
 # Build artifacts
 .eslintcache
 coverage/
+
+# Wrangler local state and secrets
+.wrangler/
+.dev.vars

@@ -2,6 +2,7 @@ import { CONTROL_ACTIONS, isHttpUrl, sourceFromKey, sourceFromRef, sourceKey, to
 import * as queueStore from "./store/queue.js";
 import * as playlistStore from "./store/playlists.js";
 import * as historyStore from "./store/history.js";
+import { deleteDevice, renameDevice } from "./store/devices.js";
 import { recordNodeSeen } from "./store/users.js";
 
 // One service layer behind both the MCP tools and the /v1 HTTP API, so the
@@ -58,6 +59,24 @@ export function createServices({ db, userId, hub, node }) {
     },
 
     devices: () => hub.listDevices(),
+
+    async renameDevice(id, name) {
+      if (id.startsWith("node:")) throw new YoloError("invalid_request", "Node renderers are named on the node");
+      const device = await renameDevice(db, userId, id, name);
+      void Promise.resolve().then(() => hub.broadcastDevices()).catch(() => {});
+      return device;
+    },
+
+    // Device tokens arrive with the device-code flow; until then removing a
+    // device only forgets it (it reappears if it says hello again).
+    async deleteDevice(id) {
+      if (id.startsWith("node:")) throw new YoloError("invalid_request", "Node renderers are managed on the node");
+      await deleteDevice(db, userId, id);
+      void Promise.resolve().then(() => hub.broadcastDevices()).catch(() => {});
+      return { deleted: id };
+    },
+
+    playbackState: () => hub.getState(),
 
     // --- Library ----------------------------------------------------------
 
@@ -118,7 +137,7 @@ export function createServices({ db, userId, hub, node }) {
 
     seek: (position) => hub.seek(position),
     transfer: (device) => hub.transfer(device),
-    listTracks: ({ url, itemId } = {}) => hub.listTracks(url || itemId ? refToSource({ url, itemId }) : null),
+    listTracks: ({ source, url, itemId } = {}) => hub.listTracks(source ?? (url || itemId ? refToSource({ url, itemId }) : null)),
     setTracks: ({ subtitles, audio }) => hub.setTracks({ subtitles, audio }),
 
     // --- Queue ------------------------------------------------------------
