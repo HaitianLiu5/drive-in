@@ -7,12 +7,15 @@
   // global_fetch_strictly_public: SSRF protection for OAuth Client ID
   // Metadata Document fetches (required by workers-oauth-provider).
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "workers_dev": true,
+  // Served only on the custom domain: passkeys are bound to PUBLIC_ORIGIN, so a
+  // second origin would only offer a sign-in page that cannot work.
+  "workers_dev": false,
+  "routes": [{ "pattern": "useyolo.app", "custom_domain": true }],
   "observability": { "enabled": true },
   "vars": {
-    // Public origin of this Worker, e.g. https://useyolo.app. It is the OAuth
-    // issuer, the token audience, and the passkey relying party.
-    "PUBLIC_ORIGIN": "https://yolo-control.example.workers.dev",
+    // Public origin of this Worker. It is the OAuth issuer, the token audience,
+    // and the passkey relying party; changing it invalidates every passkey.
+    "PUBLIC_ORIGIN": "https://useyolo.app",
     // "vpc" uses the NODE binding below; "tunnel" uses NODE_PUBLIC_ORIGIN with
     // a Cloudflare Access service token (decision 17).
     "NODE_TRANSPORT": "vpc",

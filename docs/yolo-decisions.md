@@ -90,7 +90,7 @@ Yolo 满足所有条件：所有语音识别器的词表里都有它，"人生�
 
 2026-10-08 通过 Cloudflare Registrar 的官方接口查询：
 
-- `useyolo.app` 可以注册，$8.20/年，**还没注册**。
+- `useyolo.app` 可以注册，首年 $8.20，续费 $14.20/年。2026-10-10 已注册到用户的 Cloudflare 账号，到期日 2027-10-10，没开自动续费。
 - `heyyolo.app`、`yoloplay.app`、`yolotv.app` 也可以注册。
 - `yolo.app`、`yolo.ai`、`useyolo.com` 都已被注册。
 - npm 上 `@useyolo` 可用，`@yolo` 已被占用。
@@ -98,8 +98,7 @@ Yolo 满足所有条件：所有语音识别器的词表里都有它，"人生�
 ## 待定
 
 1. **不用 Cloudflare 能不能自托管**：用户先说过"可以用，只是兼容 Cloudflare"，后来选了方案 B 为主。一个思路是让同一套 Worker 代码在本地的 workerd 上运行，但这需要验证。另一个选择是 v1 先不支持。
-2. **注册 `useyolo.app`**：等用户明确同意再注册，会从 Cloudflare 账号扣费。
-3. **Cloudflare 对视频流量的条款**：CDN 条款要求通过付费服务（Developer Platform、Stream 等）提供视频。按字面理解，经付费 Worker 透传比直接走 Tunnel 更站得住，但没有找到针对 Tunnel 的官方说明。现在用着没问题，不代表条款允许，需要用户自己确认。
+2. **Cloudflare 对视频流量的条款**：CDN 条款要求通过付费服务（Developer Platform、Stream 等）提供视频。按字面理解，经付费 Worker 透传比直接走 Tunnel 更站得住，但没有找到针对 Tunnel 的官方说明。现在用着没问题，不代表条款允许，需要用户自己确认。
 
 ## 去掉 CLI 的清单
 
