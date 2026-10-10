@@ -23,7 +23,7 @@
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "express": "^5.2.1",
-    "pino": "^10.3.1",
+    "pino": "^10.4.0",
     "pino-http": "^11.0.0",
     "pino-roll": "^4.0.0",
     "ws": "^8.21.0"
