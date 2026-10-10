@@ -12,10 +12,10 @@
   "scripts": {
     "test": "npm run test:unit",
     "test:unit": "node --test test/*.test.js",
-    "test:integration": "node -e \"\"",
     "start": "node src/main.js"
   },
   "dependencies": {
+    "@useyolo/core": "0.1.0",
     "@hono/node-server": "^2.1.4",
     "hono": "^4.13.13"
   }

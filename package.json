@@ -28,8 +28,8 @@
   },
   "scripts": {
     "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
-    "test:unit": "npm run test:unit -w player && npm run test:unit -w server",
-    "test:integration": "npm run test:integration -w player && npm run test:integration -w server",
+    "test:unit": "npm run test:unit -w player && npm run test:unit -w server && npm run test:unit -w service/core -w service/control -w service/node",
+    "test:integration": "npm run test:integration -w player && npm run test:integration -w server && npm run test:integration -w service/control",
     "test:e2e": "node --test test/e2e/*.test.js",
     "check": "npm test && npm run build",
     "check:core": "npm run test:unit && npm run test:integration && npm run build",
@@ -38,9 +38,11 @@
     "dev:vite": "npm run dev -w player",
     "dev:tunnel": "wait-on tcp:5173 && cloudflared tunnel --url http://localhost:5173",
     "dev:remote": "concurrently -k -n server,vite,tunnel -c blue,green,magenta \"npm:dev:server\" \"npm:dev:vite\" \"npm:dev:tunnel\"",
-    "build": "npm run build -w player",
+    "build": "npm run build -w player && npm run build -w service/control",
     "start": "npm run build && npm run start -w server",
-    "start:tunnel": "npm run build && concurrently -k -n server,tunnel -c blue,magenta \"npm:start -w server\" \"cloudflared tunnel run\""
+    "start:tunnel": "npm run build && concurrently -k -n server,tunnel -c blue,magenta \"npm:start -w server\" \"cloudflared tunnel run\"",
+    "dev:control": "npm run dev -w service/control",
+    "dev:node": "npm run start -w service/node"
   },
   "workspaces": [
     "server",
