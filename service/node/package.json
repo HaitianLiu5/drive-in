@@ -12,11 +12,13 @@
   "scripts": {
     "test": "npm run test:unit",
     "test:unit": "node --test test/*.test.js",
-    "start": "node src/main.js"
+    "start": "node src/main.js",
+    "export:d1": "node scripts/export-legacy-to-d1.js"
   },
   "dependencies": {
     "@useyolo/core": "0.1.0",
     "@hono/node-server": "^2.1.4",
-    "hono": "^4.13.13"
+    "hono": "^4.13.13",
+    "better-sqlite3": "^12.11.1"
   }
 }
