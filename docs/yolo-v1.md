@@ -1,6 +1,6 @@
 # Yolo v1 协议草案
 
-状态：草案，待确认。确认后按此实现，Drive-In 成为第一个客户端。背景、决策理由和待定事项见 [yolo-decisions.md](yolo-decisions.md)。
+状态：v1 正在实现，代码在 `service/`。已实现和没实现的部分见第 12 节。背景、决策理由和待定事项见 [yolo-decisions.md](yolo-decisions.md)。
 
 Yolo 是一个私人的、由 agent 驱动的流媒体服务。服务端分两部分：控制面跑在 Cloudflare，媒体节点跑在家里。客户端包括特斯拉 canvas 播放器（Drive-In）、普通浏览器、手机，以及通过 MCP 接入的 agent。
 
@@ -239,7 +239,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | type | 发给谁 | 说明 |
 |---|---|---|
 | `welcome` | 刚连上的设备 | 包含 `deviceId`、当前的 `state`、`queue`、`playlists` |
-| `load` | 当前设备 | 包含流描述、`startTime`、`autoplay`、`reason`（`play`、`recovery`、`seek`、`quality`、`transfer`） |
+| `load` | 当前设备 | 包含流描述、`startTime`、`autoplay`、`reason`（`play`、`recovery`、`seek`、`quality`、`transfer`、`tracks`）。`tracks` 表示换音轨时需要重建会话，例如 Plex 图片字幕 |
 | `pause`、`resume`、`stop`、`seek` | 当前设备 | 控制命令 |
 | `tracks` | 当前设备 | 更换字幕或音轨。带上字幕的 VTT URL |
 | `deactivate` | 原来的当前设备 | 播放被切到别的设备，本机停止，变成遥控器 |
@@ -270,12 +270,19 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | POST | `/internal/v1/sessions/:id/stop` | 停止会话，作废 token，回收 ffmpeg 和 Plex 转码 |
 | POST | `/internal/v1/sessions/:id/tracks` | 更换音轨。Plex 的图片字幕需要重建会话 |
 | POST | `/internal/v1/sessions/:id/progress` | 控制面转发播放进度。节点负责回写 Plex 进度，以及检测 Plex 会话是否失效 |
+| POST | `/internal/v1/sessions/:id/control` | `{ action: pause \| resume \| stop \| seek, position? }`。只用于节点渲染器（见下文），实时设备的控制命令由 Hub 直接发 |
 | GET | `/internal/v1/tracks?source=` | 列出某个来源可选的音轨 |
+| POST | `/internal/v1/metadata` | `{ source }`，返回标题、缩略图、时长、是否直播。`search` 解析 URL、加入队列时补全标题都用它 |
+| GET | `/internal/v1/renderers` | 节点自己驱动的播放器（节点渲染器）列表，包括在线状态和当前进度 |
 | GET | `/internal/v1/library/…` | 和第 5 节的库接口一一对应 |
 | POST | `/internal/v1/playlists/expand` | 展开外部播放列表的 URL，返回 `Source` 列表 |
 | GET | `/m/{token}/…` | 媒体流，用现有的代理、DASH 转 HLS、Plex HLS、字幕实现 |
 
 节点离线时：`prepare` 返回 `node_offline`。页面、MCP、队列管理照常可用，播放器显示"媒体节点离线"。
+
+**节点渲染器**：节点可以自己驱动一个播放器，控制面把它当成设备，id 为 `node:<id>`，命令经 `/internal/v1/sessions/:id/control` 转给节点。v1 用它接上现有的 Drive-In 服务（`node:legacy`）：在媒体管线搬进节点之前，agent 通过它控制车上现在的播放器。
+
+**请求签名**：请求头 `x-yolo-timestamp` 和 `x-yolo-signature`，签名为 `HMAC-SHA256(nodeSecret, 时间戳\n方法\n路径和查询串\nSHA-256(请求体))`，base64url 编码。时钟偏差超过 5 分钟即拒绝。
 
 ## 9. 数据（D1，所有表都带 `user_id`）
 
@@ -283,14 +290,15 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 |---|---|
 | `users`、`passkeys` | 用户 id、显示名；passkey 凭证（credential id、公钥、签名计数） |
 | `devices` | id、user_id、名称、类型、能力、最后在线时间 |
-| `oauth_clients`、`oauth_grants`、`oauth_tokens` | 客户端、授权、token（只存哈希） |
+| （KV）OAuth 客户端、授权、token | 由 `@cloudflare/workers-oauth-provider` 存在 `OAUTH_KV`，token 和密钥只存哈希，`props` 加密存储。所以 D1 里没有 `oauth_*` 表 |
+| `init_codes_used` | 用过的初始化码的哈希，保证每个码只能用一次 |
 | `nodes` | id、user_id、地址、密钥哈希、版本 |
 | `queue_items` | 由现在的表迁移过来，`source_type/url/rating_key` 合并成 `source` JSON |
 | `playlists`、`playlist_items` | 同上 |
 | `history` | source_key、标题、进度、时长、播放次数、更新时间。只保留最近 500 条。取代 `.play-history.json` |
 | `track_preferences` | source_key、选择。`default` 行记录最近一次的偏好。取代 `subtitle_preferences` |
 
-播放状态存在 Hub DO 自己的存储里，不进 D1。迁移脚本负责把现有的 SQLite 和 JSON 数据一次性导入 D1。
+播放状态存在 Hub DO 自己的存储里，不进 D1。迁移脚本（`service/node/scripts/export-legacy-to-d1.js`）把现有的 SQLite 和 JSON 数据一次性导出成 SQL，再用 `wrangler d1 execute` 导入 D1。
 
 ## 10. MCP 工具（服务名 `yolo`）
 
@@ -313,6 +321,14 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | `playlist_delete` | `playlist_id` | destructive |
 | `history` | `limit?` | readOnly |
 
+补充约定：
+
+- 注解按上表设置：只读工具标 readOnly，删除类标 destructive。其余写操作显式标 `destructiveHint: false`，因为 MCP 默认把非只读工具当成 destructive。`queue_list` 是读操作，也标 readOnly。
+- 每个工具只要求一个 scope：只读工具要 `read`；`play`、`control`、`seek`、`transfer`、`set_tracks` 要 `control`；改队列和播放列表的工具要 `manage`。
+- `item_id` 是库条目 id，格式为 `plex:<ratingKey>`。`list_tracks` 的 `item_id` 也可以是 URL。
+- `play` 不带 `start_at` 时，从历史记录里的进度接着播。
+- 出错时工具返回 `isError: true`，内容是第 5 节的错误 JSON。
+
 服务描述要写清楚三点：
 
 1. Yolo 是什么。
@@ -322,3 +338,28 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 ## 11. 待确认
 
 见 [yolo-decisions.md](yolo-decisions.md#待定)，以那里的列表为准。
+
+## 12. 实现状态（2026-10-09）
+
+| 部分 | 状态 | 位置 |
+|---|---|---|
+| MCP（第 10 节全部 22 个工具，Streamable HTTP） | 已实现 | `service/control/src/mcp/` |
+| OAuth：动态注册、CIMD、授权码 + PKCE、可轮换的 refresh token、三个 scope、授权页 | 已实现 | `service/control/src/index.js`、`auth/` |
+| 用户本人 passkey 登录 + 一次性初始化码 | 已实现，只在本地验证过服务端流程，还没用真实浏览器和 passkey 测过 | `service/control/src/auth/` |
+| `/v1` HTTP API（第 5 节） | 已实现 | `service/control/src/api/v1.js` |
+| Hub DO、`/v1/realtime`（票据、`hello`/`welcome`、`report`、`ended`、心跳） | 已实现，还没有客户端使用 | `service/control/src/hub/` |
+| D1 表（第 9 节） | 已实现 | `service/control/migrations/` |
+| `nodeFetch()`：Workers VPC，可切换到 Tunnel + Access | 已实现 | `service/control/src/node-client.js` |
+| 节点：健康检查、库、元数据、音轨、播放列表展开 | 已实现 | `service/node/` |
+| 节点：`prepare` 和会话 | 只支持节点渲染器 `node:legacy`，播放仍由 `server/` 完成 | `service/node/src/legacy.js` |
+| 节点：`/m/*` 媒体流、给实时设备的 `prepare` | 没实现，要把 `server/` 的媒体管线搬过来 | |
+| 媒体 URL 签名 | 控制面已签发，节点还没有校验的地方 | `service/core/src/signing.js` |
+| 设备码登录（RFC 8628）、扫码配对 | 没实现。`workers-oauth-provider` 不支持设备码授权，需要自己做 | |
+| 设置页（撤销客户端、管理 passkey） | 没实现 | |
+| Drive-In 播放器改用 v1 协议 | 没实现 | |
+
+实现时对草案做的取舍：
+
+- token 的 audience 是部署的源（例如 `https://useyolo.app`），这样一个 token 同时覆盖 `/mcp` 和 `/v1`。protected resource 元数据在 `/.well-known/oauth-protected-resource`。
+- Agent 默认申请全部三个 scope（`requiredScopes`），用户可以在授权页取消勾选。scope 之间没有包含关系。
+- 删除设备目前只是删掉设备记录。设备 token 要等设备码登录做完才有。
