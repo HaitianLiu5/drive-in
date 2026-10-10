@@ -1,0 +1,30 @@
+{
+  "name": "@useyolo/control",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Yolo control plane: Cloudflare Worker serving /mcp, /oauth, /v1, D1, and the Hub Durable Object",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "node --test test/unit/*.test.js",
+    "test:integration": "node --test test/integration/*.test.js",
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "db:migrate:local": "wrangler d1 migrations apply yolo --local"
+  },
+  "devDependencies": {
+    "wrangler": "^4.149.0"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^1.2.3",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@simplewebauthn/server": "^14.0.3",
+    "agents": "^0.28.0",
+    "hono": "^4.13.13",
+    "zod": "^4.6.5"
+  }
+}

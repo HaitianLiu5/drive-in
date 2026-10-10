@@ -45,7 +45,10 @@
   "workspaces": [
     "server",
     "player",
-    "cli"
+    "cli",
+    "service/core",
+    "service/control",
+    "service/node"
   ],
   "devDependencies": {
     "concurrently": "^9.2.4",

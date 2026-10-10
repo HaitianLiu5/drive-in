@@ -1,0 +1,19 @@
+{
+  "name": "@useyolo/core",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Shared Yolo types, validation, and pure logic for the control plane and the media node",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "npm run test:unit",
+    "test:unit": "node --test test/*.test.js",
+    "test:integration": "node -e \"\""
+  }
+}

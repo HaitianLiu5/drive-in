@@ -1,0 +1,22 @@
+{
+  "name": "@useyolo/node",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Yolo home media node: /internal/v1 API reached by the control plane through Workers VPC",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "main": "src/main.js",
+  "scripts": {
+    "test": "npm run test:unit",
+    "test:unit": "node --test test/*.test.js",
+    "test:integration": "node -e \"\"",
+    "start": "node src/main.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.4",
+    "hono": "^4.13.13"
+  }
+}
