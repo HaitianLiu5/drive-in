@@ -98,7 +98,7 @@ test("a failed advance puts the item back at the head", async () => {
   const plane = createTestControlPlane();
   await addQueueItems(plane.db, USER, [{ source: movie, title: "Movie" }]);
   plane.node.routes["POST /internal/v1/prepare"] = () => {
-    throw Object.assign(new Error("yt-dlp failed"), { code: "resolve_failed" });
+    throw Object.assign(new Error("The source could not resolve it"), { code: "resolve_failed" });
   };
   await assert.rejects(plane.hub.control("next"));
   assert.equal((await listQueue(plane.db, USER))[0].title, "Movie");
