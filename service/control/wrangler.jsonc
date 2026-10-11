@@ -10,12 +10,12 @@
   // Served only on the custom domain: passkeys are bound to PUBLIC_ORIGIN, so a
   // second origin would only offer a sign-in page that cannot work.
   "workers_dev": false,
-  "routes": [{ "pattern": "useyolo.app", "custom_domain": true }],
+  "routes": [{ "pattern": "yolo.haitian.site", "custom_domain": true }],
   "observability": { "enabled": true },
   "vars": {
     // Public origin of this Worker. It is the OAuth issuer, the token audience,
     // and the passkey relying party; changing it invalidates every passkey.
-    "PUBLIC_ORIGIN": "https://useyolo.app",
+    "PUBLIC_ORIGIN": "https://yolo.haitian.site",
     // "vpc" uses the NODE binding below; "tunnel" uses NODE_PUBLIC_ORIGIN with
     // a Cloudflare Access service token (decision 17).
     "NODE_TRANSPORT": "vpc",

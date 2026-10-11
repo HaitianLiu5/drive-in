@@ -4,7 +4,8 @@
 
 Yolo 是一个私人的、由 agent 驱动的流媒体服务。服务端分两部分：控制面跑在 Cloudflare，媒体节点跑在家里。客户端包括特斯拉 canvas 播放器（Drive-In）、普通浏览器、手机，以及通过 MCP 接入的 agent。
 
-- 官网：`useyolo.app`
+- 官网：`useyolo.app`，只做宣传网站
+- 控制面（用户本人的实例）：`yolo.haitian.site`，见决策 18
 - npm：`@useyolo/*`
 - MCP 服务名：`yolo`
 
@@ -368,6 +369,6 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 实现时对草案做的取舍：
 
-- token 的 audience 是部署的源（例如 `https://useyolo.app`），这样一个 token 同时覆盖 `/mcp` 和 `/v1`。protected resource 元数据在 `/.well-known/oauth-protected-resource`。
+- token 的 audience 是部署的源（例如 `https://yolo.haitian.site`），这样一个 token 同时覆盖 `/mcp` 和 `/v1`。protected resource 元数据在 `/.well-known/oauth-protected-resource`。
 - Agent 默认申请全部三个 scope（`requiredScopes`），用户可以在授权页取消勾选。scope 之间没有包含关系。
 - 删除设备目前只是删掉设备记录。设备 token 要等设备码登录做完才有。
