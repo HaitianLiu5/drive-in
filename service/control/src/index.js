@@ -1,10 +1,11 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
+import { errorBody, YoloError } from "@useyolo/core";
 import { createV1App } from "./api/v1.js";
 import { AUTHORIZE_PATH, createAuthApp } from "./auth/app.js";
 import { hubClient } from "./hub/hub.js";
 import { handleMcpRequest } from "./mcp/handler.js";
 import { proxyMedia } from "./media.js";
-import { createNodeClient } from "./node-client.js";
+import { createNodeClient, isNodeRequest } from "./node-client.js";
 import { handleRealtime, issueRealtimeTicket } from "./realtime.js";
 import { createServices } from "./services.js";
 
@@ -75,6 +76,9 @@ function oauthProvider(env, request) {
 
 export default {
   async fetch(request, env, ctx) {
+    if (isNodeRequest(request)) {
+      return Response.json(errorBody(new YoloError("invalid_request", "A media node request reached the control plane")), { status: 508 });
+    }
     const { pathname } = new URL(request.url);
     if (pathname === "/v1/realtime") return handleRealtime(request, env);
     if (pathname.startsWith("/m/")) return proxyMedia(request, env);

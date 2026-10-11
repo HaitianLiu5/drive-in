@@ -1,4 +1,4 @@
-import { fromErrorBody, signNodeRequest, YoloError } from "@useyolo/core";
+import { fromErrorBody, SIGNATURE_HEADER, signNodeRequest, YoloError } from "@useyolo/core";
 
 // Every control plane → media node call goes through nodeFetch() (decision 17).
 //
@@ -8,6 +8,11 @@ import { fromErrorBody, signNodeRequest, YoloError } from "@useyolo/core";
 // - "tunnel": the Tunnel's public hostname NODE_PUBLIC_ORIGIN behind Cloudflare
 //   Access, authenticated with a service token.
 // Either way the request is signed with NODE_SECRET (yolo-v1.md §8).
+//
+// A node request that comes back to this Worker would recurse, and every hop
+// is billed. nodeFetch() refuses a NODE_PUBLIC_ORIGIN on the Worker's own
+// host, and the Worker rejects any request carrying a node signature, which
+// catches any other alias of the Worker after one hop.
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const OFFLINE_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530]);
@@ -19,8 +24,12 @@ export function nodeTransport(env) {
 function upstream(env, pathAndQuery) {
   if (nodeTransport(env) === "tunnel") {
     if (!env.NODE_PUBLIC_ORIGIN) throw new YoloError("node_offline", "NODE_PUBLIC_ORIGIN is not configured");
+    const url = new URL(pathAndQuery, env.NODE_PUBLIC_ORIGIN);
+    if (env.PUBLIC_ORIGIN && url.host === new URL(env.PUBLIC_ORIGIN).host) {
+      throw new YoloError("node_offline", "NODE_PUBLIC_ORIGIN points at this Worker, not the node");
+    }
     return {
-      url: new URL(pathAndQuery, env.NODE_PUBLIC_ORIGIN),
+      url,
       fetcher: (url, init) => fetch(url, init),
       headers: {
         "cf-access-client-id": env.NODE_ACCESS_CLIENT_ID || "",
@@ -34,6 +43,10 @@ function upstream(env, pathAndQuery) {
     fetcher: (url, init) => env.NODE.fetch(url, init),
     headers: {},
   };
+}
+
+export function isNodeRequest(request) {
+  return request.headers.has(SIGNATURE_HEADER);
 }
 
 export async function nodeFetch(env, path, {

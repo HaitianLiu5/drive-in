@@ -1,12 +1,31 @@
 import { DurableObject } from "cloudflare:workers";
-import { errorBody, fromErrorBody, MEDIA_TOKEN_TTL_SECONDS, signMediaToken } from "@useyolo/core";
+import {
+  createRateLimit,
+  errorBody,
+  fromErrorBody,
+  HEARTBEAT_PING,
+  HEARTBEAT_PONG,
+  MEDIA_TOKEN_TTL_SECONDS,
+  newId,
+  signMediaToken,
+  YoloError,
+} from "@useyolo/core";
 import { createNodeClient } from "../node-client.js";
 import { HubCore } from "./hub-core.js";
 
 // One Hub Durable Object per user (yolo-v1.md §2, §7). It keeps PlaybackState
 // in its own storage and holds the realtime WebSockets with the hibernation API.
+//
+// Nothing here wakes the Hub on a timer: devices send the heartbeat and the
+// runtime answers it while the Hub sleeps. The limits below stop a buggy
+// client (a reconnect loop, or a reply to every broadcast) from keeping the
+// Hub awake and billing requests without end.
 
-const PING_INTERVAL_MS = 25_000; // Cloudflare drops idle sockets after 100s.
+const MAX_SOCKETS = 16;
+const CONNECT_LIMIT = { max: 20, windowMs: 60_000 };
+// A playing device reports every 5 seconds plus state changes and acks.
+const MESSAGE_LIMIT = { max: 30, windowMs: 10_000 };
+const RATE_LIMITED_CLOSE = 1008;
 
 // Methods the Worker may call over RPC; see hubClient() below.
 const RPC_METHODS = new Set([
@@ -15,6 +34,14 @@ const RPC_METHODS = new Set([
 ]);
 
 export class Hub extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(HEARTBEAT_PING, HEARTBEAT_PONG));
+    this.allowConnect = createRateLimit(CONNECT_LIMIT);
+    // socketId -> rate limit. Lost on hibernation, which needs a quiet Hub.
+    this.messageLimits = new Map();
+  }
+
   async core(userId) {
     if (userId) {
       if (!this.userId) this.userId = (await this.ctx.storage.get("userId")) || null;
@@ -84,16 +111,33 @@ export class Hub extends DurableObject {
     if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
       return new Response("Expected a WebSocket upgrade", { status: 426 });
     }
+    if (this.ctx.getWebSockets().length >= MAX_SOCKETS || !this.allowConnect()) {
+      return Response.json(errorBody(new YoloError("rate_limited", "Too many realtime connections; retry later")), { status: 429 });
+    }
     await this.core(request.headers.get("x-yolo-user"));
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ deviceId: null });
-    if (!(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + PING_INTERVAL_MS);
+    server.serializeAttachment({ socketId: newId("sock", 8), deviceId: null });
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  allowMessage(socketId) {
+    if (!this.messageLimits.has(socketId)) this.messageLimits.set(socketId, createRateLimit(MESSAGE_LIMIT));
+    return this.messageLimits.get(socketId)();
+  }
+
   async webSocketMessage(ws, data) {
+    const attachment = ws.deserializeAttachment() || {};
+    if (!this.allowMessage(attachment.socketId)) {
+      // Closing, not dropping: every message that reaches the Hub is billed.
+      try {
+        ws.close(RATE_LIMITED_CLOSE, "rate_limited");
+      } catch {
+        // Already closed.
+      }
+      return;
+    }
     let message;
     try {
       message = JSON.parse(typeof data === "string" ? data : new TextDecoder().decode(data));
@@ -105,12 +149,12 @@ export class Hub extends DurableObject {
     try {
       if (message.type === "hello") {
         const { device, welcome } = await core.hello(message);
-        ws.serializeAttachment({ deviceId: device.id });
+        ws.serializeAttachment({ ...attachment, deviceId: device.id });
         ws.send(JSON.stringify(welcome));
         void core.broadcastDevices();
         return;
       }
-      const deviceId = ws.deserializeAttachment()?.deviceId;
+      const { deviceId } = attachment;
       if (!deviceId) return;
       await core.deviceMessage(deviceId, message);
     } catch (error) {
@@ -119,6 +163,7 @@ export class Hub extends DurableObject {
   }
 
   async webSocketClose(ws, code, reason) {
+    this.messageLimits.delete(ws.deserializeAttachment()?.socketId);
     try {
       ws.close(code, reason);
     } catch {
@@ -126,20 +171,6 @@ export class Hub extends DurableObject {
     }
     const core = await this.core();
     void core.broadcastDevices();
-  }
-
-  async alarm() {
-    const sockets = this.ctx.getWebSockets();
-    if (!sockets.length) return;
-    const ping = JSON.stringify({ v: 1, type: "ping", ts: Date.now() });
-    for (const ws of sockets) {
-      try {
-        ws.send(ping);
-      } catch {
-        // Closed sockets are cleaned up by webSocketClose.
-      }
-    }
-    await this.ctx.storage.setAlarm(Date.now() + PING_INTERVAL_MS);
   }
 }
 

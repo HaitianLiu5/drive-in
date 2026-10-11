@@ -398,7 +398,6 @@ export class HubCore {
         if (state.deviceId !== deviceId || message.sessionId !== state.sessionId) return;
         await this.setState({ ...state, status: "idle" });
         return;
-      case "pong":
       case "ack":
         await touchDevice(this.db, this.userId, deviceId);
         return;

@@ -6,3 +6,4 @@ export * from "./playback.js";
 export * from "./capabilities.js";
 export * from "./signing.js";
 export * from "./history.js";
+export * from "./realtime.js";

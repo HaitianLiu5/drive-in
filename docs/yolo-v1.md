@@ -221,7 +221,15 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 ## 7. 实时通道（WebSocket `/v1/realtime`）
 
-所有消息共用一个信封格式：`{ v: 1, type, id?, ... }`。带 `id` 的命令需要设备回 `ack`。心跳间隔 25 秒，因为 Cloudflare 空闲 100 秒就会断开连接。
+所有消息共用一个信封格式：`{ v: 1, type, id?, ... }`。带 `id` 的命令需要设备回 `ack`。
+
+**心跳由设备发起**：设备每 25 秒发一次 `{"v":1,"type":"ping"}`，因为 Cloudflare 空闲 100 秒就会断开连接。这个字符串必须一字不差（常量 `HEARTBEAT_PING`，在 `@useyolo/core` 里）。服务端靠 Durable Object 的 WebSocket 自动回复返回 `{"v":1,"type":"pong"}`，不会唤醒 Hub，也不产生 Hub 的运行时长。服务端不设定时器，不主动发心跳。
+
+**限额**：用来防止有 bug 的客户端让 Hub 一直醒着、不停计费。
+- 每个用户最多 16 条连接；每分钟最多新建 20 条。超出时返回 429 `rate_limited`。
+- 每条连接每 10 秒最多 30 条消息，心跳不算。超出时服务端用 1008 `rate_limited` 关闭连接。
+- 客户端断线后必须指数退避重连，收到 1008 或 429 时至少等 30 秒。
+- 客户端不能对广播（`state`、`queue`、`playlists`、`devices`）回发 `report` 之类的消息，否则会和 Hub 形成来回循环。
 
 **设备发给服务端**
 
@@ -232,7 +240,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | `ended` | `sessionId` | 播放结束，Hub 从队列取下一项 |
 | `error` | `sessionId, code, message` | 播放失败。由 Hub 决定是重建会话还是停止 |
 | `ack` | `id` | 确认收到命令 |
-| `pong` | `ts` | 心跳回复 |
+| `ping` | 无 | 心跳，固定字符串，见上文 |
 
 **服务端发给设备**
 
@@ -244,7 +252,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | `tracks` | 当前设备 | 更换字幕或音轨。带上字幕的 VTT URL |
 | `deactivate` | 原来的当前设备 | 播放被切到别的设备，本机停止，变成遥控器 |
 | `state`、`queue`、`playlists`、`devices` | 所有设备 | 状态变化的广播 |
-| `ping` | 所有设备 | 心跳 |
+| `pong` | 发 `ping` 的设备 | 心跳回复，由运行时自动发出 |
 
 **和现有 Drive-In 消息的对应关系**
 
@@ -347,9 +355,9 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | OAuth：动态注册、CIMD、授权码 + PKCE、可轮换的 refresh token、三个 scope、授权页 | 已实现 | `service/control/src/index.js`、`auth/` |
 | 用户本人 passkey 登录 + 一次性初始化码 | 已实现，只在本地验证过服务端流程，还没用真实浏览器和 passkey 测过 | `service/control/src/auth/` |
 | `/v1` HTTP API（第 5 节） | 已实现 | `service/control/src/api/v1.js` |
-| Hub DO、`/v1/realtime`（票据、`hello`/`welcome`、`report`、`ended`、心跳） | 已实现，还没有客户端使用 | `service/control/src/hub/` |
+| Hub DO、`/v1/realtime`（票据、`hello`/`welcome`、`report`、`ended`、自动回复心跳、连接和消息限额） | 已实现，还没有客户端使用；心跳和限额 2026-10-11 在本地 Worker 上验证过 | `service/control/src/hub/` |
 | D1 表（第 9 节） | 已实现 | `service/control/migrations/` |
-| `nodeFetch()`：Workers VPC，可切换到 Tunnel + Access | 已实现 | `service/control/src/node-client.js` |
+| `nodeFetch()`：Workers VPC，可切换到 Tunnel + Access；拒绝调用 Worker 自己，Worker 拒绝带节点签名的请求（508） | 已实现 | `service/control/src/node-client.js` |
 | 节点：健康检查、库、元数据、音轨、播放列表展开 | 已实现 | `service/node/` |
 | 节点：`prepare` 和会话 | 只支持节点渲染器 `node:legacy`，播放仍由 `server/` 完成 | `service/node/src/legacy.js` |
 | 节点：`/m/*` 媒体流、给实时设备的 `prepare` | 没实现，要把 `server/` 的媒体管线搬过来 | |
