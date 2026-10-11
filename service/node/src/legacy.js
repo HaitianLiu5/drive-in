@@ -67,6 +67,13 @@ export function createLegacyBridge({ baseUrl, fetchImpl = fetch, timeoutMs = 45_
     return source;
   }
 
+  // The Drive-In server keeps the last session's status ("playing") after the
+  // player disconnects, so only a connected player's status is current. The
+  // title and position stay as the point to resume from.
+  function liveStatus(current) {
+    return current.playerConnected ? STATUS[current.status] || "idle" : "idle";
+  }
+
   async function position() {
     const current = await status();
     return Number(current.player?.currentTime) || 0;
@@ -78,7 +85,7 @@ export function createLegacyBridge({ baseUrl, fetchImpl = fetch, timeoutMs = 45_
     async health() {
       try {
         const current = await status();
-        return { online: true, playerConnected: Boolean(current.playerConnected), status: current.status };
+        return { online: true, playerConnected: Boolean(current.playerConnected), status: liveStatus(current) };
       } catch {
         return { online: false, playerConnected: false };
       }
@@ -101,7 +108,7 @@ export function createLegacyBridge({ baseUrl, fetchImpl = fetch, timeoutMs = 45_
         capabilities: { renderer: "external" },
         playback: {
           sessionId,
-          status: STATUS[current.status] || "idle",
+          status: liveStatus(current),
           title: current.title || null,
           position: Number(current.player?.currentTime) || 0,
           duration: Number(current.player?.duration) || null,

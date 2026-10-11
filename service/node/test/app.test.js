@@ -73,6 +73,22 @@ test("health reports the legacy player, library, and yt-dlp", async () => {
   assert.equal(health.ytdlp.version, "2026.09.01");
 });
 
+test("a disconnected player's stale status is reported as idle", async () => {
+  const { app, legacy } = createApp();
+  // Drive-In keeps the last session's status after the car disconnects.
+  Object.assign(legacy.state, {
+    status: "playing", url: "plex://9", title: "Movie", playerConnected: false, player: { currentTime: 1789, duration: 3600 },
+  });
+  const health = await (await call(app, "GET", "/internal/v1/health")).json();
+  assert.deepEqual(health.legacy, { online: true, playerConnected: false, status: "idle" });
+  const { renderers: [renderer] } = await (await call(app, "GET", "/internal/v1/renderers")).json();
+  assert.equal(renderer.online, false);
+  assert.deepEqual(
+    { status: renderer.playback.status, title: renderer.playback.title, position: renderer.playback.position },
+    { status: "idle", title: "Movie", position: 1789 },
+  );
+});
+
 test("prepare on the legacy renderer starts playback and tracks the session", async () => {
   const { app, legacy } = createApp();
   const response = await call(app, "POST", "/internal/v1/prepare", {
