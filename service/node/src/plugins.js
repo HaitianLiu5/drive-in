@@ -1,5 +1,6 @@
-import { register } from "node:module";
+import * as nodeModule from "node:module";
 import { pathToFileURL } from "node:url";
+import { createResolve } from "./plugin-hooks.js";
 import { checkSourceImpl, createSourceRegistry } from "./sources.js";
 
 // Loads node plugins (docs/yolo-plugins.md), modelled on pi's extensions:
@@ -29,11 +30,17 @@ let hooksRegistered = false;
 
 // Plugins import the host's copy of each provided package wherever they are
 // installed, so they share one YoloError class with the node (plugin-hooks.js).
+// module.registerHooks() runs in this thread (Node 22.15+); older Node 22
+// releases fall back to module.register(), which Node 26 deprecates.
 export function provideHostPackages() {
   if (hooksRegistered) return;
   hooksRegistered = true;
   const provided = Object.fromEntries(PROVIDED_PACKAGES.map((name) => [name, import.meta.resolve(name)]));
-  register(new URL("./plugin-hooks.js", import.meta.url), { data: { provided } });
+  if (typeof nodeModule.registerHooks === "function") {
+    nodeModule.registerHooks({ resolve: createResolve(provided) });
+  } else {
+    nodeModule.register(new URL("./plugin-hooks.js", import.meta.url), { data: { provided } });
+  }
 }
 
 function pluginLogger(name, sink) {
