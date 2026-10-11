@@ -1,6 +1,6 @@
 # Yolo 决策记录
 
-状态：v1 正在实现，进度见 [yolo-v1.md 第 12 节](yolo-v1.md#12-实现状态2026-10-09)。最后更新：2026-10-11。
+状态：v1 正在实现，进度见 [yolo-v1.md 第 12 节](yolo-v1.md#12-实现状态2026-10-09)。到 1.0 的路线见 [yolo-roadmap.md](yolo-roadmap.md)。最后更新：2026-10-11。
 
 这份文档记录 Drive-In 演进成 Yolo 的背景、已定的决策和理由、放弃的方案，以及还没定的事。协议细节以 [yolo-v1.md](yolo-v1.md) 为准，这里不重复。
 
@@ -41,6 +41,12 @@ Agent 目前通过 `@drive-in/cli`（`cli/`）加 `skills/drive-in/SKILL.md` 来
 | 16 | 用户本人只用 **passkey** 登录。第一个 passkey 和找回都用家里媒体节点签发的 **6 位数字配对码**：在家里机器上运行 `npm run owner-code`，到 `/login` 输入。码只存在节点内存里，Cloudflare 不存；15 分钟过期，错 5 次作废，只能用一次，重新申请会替换旧码，节点重启就没了。已有 passkey 时用配对码注册就是**重置**：新 passkey 保存后，删掉其他所有 passkey，撤销所有登录会话。没有网页找回，只能在家里机器上本地重置。签发只走节点的本地 Unix socket，控制面碰不到 | passkey：Face ID 一下即可，抗钓鱼，没有可以泄露的密码；不需要 Zero Trust 后台配置。门槛要高，是因为节点在局域网里，能替别人抓取任意 URL。配对码：用户的判断是 6 位数字够用，就像微信输入法的配对码，因为唯一的暴露窗口是第一次注册前那一小段时间，找回又只能在家里机器上做。控制面的域名写在公开仓库里，谁都能来试码，所以过期、5 次上限和一次性这几条限制必须有 | 管理密码；Cloudflare Access；存在 Worker secret（`OWNER_INIT_CODE`）里的一次性长初始化码（2026-10-11 换掉：每次找回都要轮换 secret，而且码存在 Cloudflare） |
 | 17 | 控制面通过 **Workers VPC** 访问节点，调用统一收进 `nodeFetch()`；开工前先实验，透传真实 HLS 会话一小时（代码和步骤见 [experiments/workers-vpc-spike](../experiments/workers-vpc-spike/README.md)）。2026-10-08 压测通过：60 分钟、每条路径 450 个约 1.5MB 的请求，VPC 路径失败 0 次，慢尾吞吐 p5 16.9 Mbps，首字节时间 p95 125ms，与公网路径的 123ms 持平。压测只覆盖静态文件，用真实播放器看半小时的测试还没做 | 节点完全没有公网地址，也不需要轮换 token。Workers VPC 截至 2026-09 仍是 Beta，所以要留退路：实验不通过、或 Beta 出问题时，只改配置切换到 Tunnel 公网域名 + Access service token | 直接用 Tunnel 公网域名 + Access service token |
 | 18 | 控制面部署在 **`yolo.haitian.site`**（MCP 地址 `https://yolo.haitian.site/mcp`）；`useyolo.app` 只做宣传网站 | 用户选的。这是用户本人的私人实例，放在个人域名下，和现在的 `drivein.haitian.site` 一样；以后别人用 Yolo 也是各自部署到自己的域名。passkey 和 OAuth issuer 都绑定在这个地址上，换地址就要重新注册 passkey | `useyolo.app` 根域名（留给宣传网站）；`app.useyolo.app`、`api.useyolo.app` |
+| 19 | **插件架构**：片源、元数据、协议、设备四类能力都做成插件。核心只保留片库模型、设备和会话（Hub）、进度和历史、身份、媒体流签名和转码基础能力，以及 MCP。路线见 [yolo-roadmap.md](yolo-roadmap.md) | 每多支持一种片源或客户端，维护成本都只留在对应的插件里，核心不会越来越重；Emby、DLNA 这类协议可以留给社区做。做法参考 pi 的扩展机制 | 在核心里逐个支持片源和客户端 |
+| 20 | 插件是导出工厂函数的 npm 包，清单写在 `package.json` 的 `yolo` 字段里，分 `control` 和 `node` 两个入口。控制面插件在部署时打包，节点插件在启动时加载。1.0 之前插件接口标为实验性。1.0 不做权限系统，靠用户信任插件、安装前审查代码 | Worker 不能在运行时加载代码；每个用户都自己部署，部署时打包就够了。pi 也用这种信任模型 | 运行时插件市场；进程外的插件协议（类似 Stremio 的 HTTP 插件）；1.0 就做权限声明 |
+| 21 | **yt-dlp 也是插件**：核心不认识 `url` 这种片源类型，收到网址时交给片源插件依次认领 | yt-dlp 更新很频繁，可以单独发版；不想要它的人可以关掉，原生 App 审核和 YouTube 条款的风险都只落在这一个插件上 | yt-dlp 留在核心里 |
+| 22 | 片库和进度归 Yolo 管，Plex 降为可选的片源插件 | 没有 Plex 的 NAS 用户也需要片库；进度分散在 Plex、旧 Drive-In 和 Yolo 三个地方，正是「播放不接着进度」的根本原因 | 继续依赖 Plex 的片库和进度 |
+| 23 | NAS 接入靠「让节点靠近文件」：节点用 Docker 跑在 NAS 上，或者把共享目录挂载到节点所在的机器。节点本身只额外支持 WebDAV | Plex 和 Jellyfin 也是这样做的；Node 生态里的 SMB 库不成熟；DLNA 作为片源时元数据太少 | 在节点里实现 SMB/NFS 客户端；DLNA 片源 |
+| 24 | 1.0 不做原生 App。Apple 设备通过兼容 Jellyfin 的协议插件接入：Infuse 用来手动播放，Swiftfin 由 agent 遥控。Jellyfin 会话接入 Hub 的设备模型，MCP 不用区分设备走的是哪种协议 | 2026-10 的调研显示：Infuse 不接受服务器推送的遥控命令，Swiftfin 1.6 接受；兼容 Jellyfin 的 API 已有先例（AioFin、Remux）。原生 App 要应对审核（2.1、5.2.3）和每年的维护 | 原生 App 优先；模拟 Plex 服务端（plex.tv 认领机制和 Plex 条款都不允许） |
 
 ### 不选 vinext 的原因
 

@@ -16,7 +16,7 @@ This is an npm workspaces repository:
 
 ## Planned direction
 
-Drive-In is being redesigned into Yolo: an agent-driven media service (Cloudflare control plane, home media node, MCP) with Drive-In as its Tesla client. Read `docs/yolo-decisions.md` for the decisions and open questions, and `docs/yolo-v1.md` for the protocol, before proposing architecture changes.
+Drive-In is being redesigned into Yolo: an agent-driven media service (Cloudflare control plane, home media node, MCP) with Drive-In as its Tesla client. Read `docs/yolo-decisions.md` for the decisions and open questions, `docs/yolo-v1.md` for the protocol, and `docs/yolo-roadmap.md` for the plugin architecture and the path to 1.0, before proposing architecture changes.
 
 Implemented so far (`service/`): the remote MCP server with all v1 tools, OAuth with passkey owner sign-in, the `/v1` API, the Hub Durable Object with the realtime channel, D1 storage, `nodeFetch()`, and the media node's library and metadata API. Not yet moved: the media pipeline (`/m/*`, ffmpeg, HLS) still lives in `server/`, so the node drives today's Drive-In server as the renderer `node:legacy`. Keep `server/` and `cli/` until the MCP path is verified manually (decision 12); do not run the CLI removal checklist before then.
 
