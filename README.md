@@ -1,5 +1,7 @@
 # Drive-In
 
+> **This repository is Yolo.** Drive-In is being rebuilt into Yolo, a private, agent-driven media service, and becomes its Tesla client. Until that work lands, the rest of this README still describes Drive-In. See [docs/yolo-roadmap.md](docs/yolo-roadmap.md) (Simplified Chinese) for the plan.
+
 Drive-In is a self-hosted media player for Tesla browsers. Mediabunny decodes media with WebCodecs and renders frames to `<canvas>` instead of a native `<video>` element.
 
 > Use Drive-In only while parked or as a passenger. Obey local laws and only play media you are authorized to access. This project is not affiliated with Tesla or Plex.
@@ -51,7 +53,7 @@ See the [upstream fix](https://github.com/yt-dlp/yt-dlp/releases/tag/2026.08.19)
 Drive-In runs directly on Node.js. Install the media tools listed above on the same host.
 
 ```bash
-git clone https://github.com/1MoreBuild/drive-in.git
+git clone https://github.com/HaitianLiu5/yolo.git
 cd drive-in
 cp .env.example .env
 npm install

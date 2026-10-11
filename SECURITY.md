@@ -5,7 +5,7 @@
 If you discover a security vulnerability in Drive-In, please report it responsibly:
 
 1. **Do NOT open a public GitHub issue** for security vulnerabilities
-2. Use [GitHub Security Advisories](https://github.com/1MoreBuild/drive-in/security/advisories/new) to report privately
+2. Use [GitHub Security Advisories](https://github.com/HaitianLiu5/yolo/security/advisories/new) to report privately
 3. Or email the maintainers directly
 
 We will acknowledge receipt within 48 hours and aim to release a fix within 7 days for critical issues.

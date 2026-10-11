@@ -8,10 +8,10 @@
   "author": "1MoreBuild",
   "repository": {
     "type": "git",
-    "url": "https://github.com/1MoreBuild/drive-in.git"
+    "url": "https://github.com/HaitianLiu5/yolo.git"
   },
-  "homepage": "https://drivein.haitian.site",
-  "bugs": "https://github.com/1MoreBuild/drive-in/issues",
+  "homepage": "https://github.com/HaitianLiu5/yolo",
+  "bugs": "https://github.com/HaitianLiu5/yolo/issues",
   "keywords": [
     "tesla",
     "media-player",

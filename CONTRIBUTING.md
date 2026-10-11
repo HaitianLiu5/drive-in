@@ -5,7 +5,7 @@
 Drive-In requires Node.js 22.12 or newer, yt-dlp, FFmpeg, and Deno.
 
 ```bash
-git clone https://github.com/1MoreBuild/drive-in.git
+git clone https://github.com/HaitianLiu5/yolo.git
 cd drive-in
 cp .env.example .env
 npm install
@@ -40,7 +40,7 @@ Include:
 - Relevant browser and server logs
 - Whether the failure also occurs when running yt-dlp directly
 
-Report security issues privately through [GitHub Security Advisories](https://github.com/1MoreBuild/drive-in/security/advisories/new), not a public issue.
+Report security issues privately through [GitHub Security Advisories](https://github.com/HaitianLiu5/yolo/security/advisories/new), not a public issue.
 
 ## License
 
