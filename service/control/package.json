@@ -17,6 +17,7 @@
     "db:migrate:local": "wrangler d1 migrations apply yolo --local"
   },
   "devDependencies": {
+    "@useyolo/plugin-api": "0.2.0",
     "wrangler": "^4.149.0",
     "better-sqlite3": "^12.11.1",
     "@modelcontextprotocol/client": "2.0.0"

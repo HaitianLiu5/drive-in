@@ -28,7 +28,7 @@
   },
   "scripts": {
     "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
-    "test:unit": "npm run test:unit -w player && npm run test:unit -w server && npm run test:unit -w service/core -w service/control -w service/node",
+    "test:unit": "npm run test:unit -w player && npm run test:unit -w server && npm run test:unit -w service/core -w service/plugin-api -w service/control -w service/node -w plugins/source-plex -w plugins/source-ytdlp",
     "test:integration": "npm run test:integration -w player && npm run test:integration -w server && npm run test:integration -w service/control",
     "test:e2e": "node --test test/e2e/*.test.js",
     "check": "npm test && npm run build",
@@ -50,8 +50,11 @@
     "player",
     "cli",
     "service/core",
+    "service/plugin-api",
     "service/control",
-    "service/node"
+    "service/node",
+    "plugins/source-plex",
+    "plugins/source-ytdlp"
   ],
   "devDependencies": {
     "concurrently": "^9.2.4",

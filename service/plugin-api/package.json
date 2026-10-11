@@ -1,0 +1,22 @@
+{
+  "name": "@useyolo/plugin-api",
+  "version": "0.2.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Yolo plugin API (experimental): what plugins import, and how Yolo finds and loads plugins",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./host": "./src/host.js"
+  },
+  "scripts": {
+    "test": "npm run test:unit",
+    "test:unit": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@useyolo/core": "0.1.0"
+  }
+}

@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@useyolo/core": "0.1.0",
+    "@useyolo/plugin-api": "0.2.0",
     "@hono/node-server": "^2.1.4",
     "hono": "^4.13.13",
     "better-sqlite3": "^12.11.1"

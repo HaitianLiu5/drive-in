@@ -1,0 +1,6 @@
+{
+  "plugins": [
+    { "source": "./source-plex" },
+    { "source": "./source-ytdlp" }
+  ]
+}
