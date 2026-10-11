@@ -1,4 +1,4 @@
-import { normalizeSource } from "@useyolo/core";
+import { normalizeSourceRef, sourceKey } from "@useyolo/core";
 
 export function parseJson(value, fallback) {
   try {
@@ -8,7 +8,9 @@ export function parseJson(value, fallback) {
   }
 }
 
-// Queue items and playlist items share one Item shape (yolo-v1.md §4).
+// Queue items and playlist items share one Item shape (yolo-v1.md §4). Their
+// source is a plugin Source, or an unclaimed { url } added while the node was
+// offline, which is claimed when it plays.
 export function itemFromRow(row) {
   if (!row) return null;
   return {
@@ -23,11 +25,11 @@ export function itemFromRow(row) {
 }
 
 export function itemColumns(input) {
-  const source = normalizeSource(input.source);
+  const source = normalizeSourceRef(input.source);
   const duration = Number(input.duration);
   return {
     source: JSON.stringify(source),
-    title: String(input.title || (source.kind === "url" ? source.url : `Library item ${source.ratingKey}`)).slice(0, 500),
+    title: String(input.title || source.url || `Library item ${sourceKey(source)}`).slice(0, 500),
     thumbnail: input.thumbnail ? String(input.thumbnail).slice(0, 2000) : null,
     duration: Number.isFinite(duration) && duration > 0 ? Math.floor(duration) : null,
     metadata: JSON.stringify(input.metadata && typeof input.metadata === "object" ? input.metadata : {}),

@@ -1,6 +1,7 @@
 import {
   currentPosition,
   emptyPlaybackState,
+  isClaimed,
   newId,
   preferenceFromTrack,
   sourceKey,
@@ -11,6 +12,7 @@ import { getTrackPreferences, saveTrackPreferences } from "../store/preferences.
 import { listHistory, recordPlay, recordProgress } from "../store/history.js";
 import { listQueue, shiftQueue, addQueueItems } from "../store/queue.js";
 import { listPlaylists } from "../store/playlists.js";
+import { claimSource } from "../sources.js";
 
 // The Hub owns "what is playing now" for one user (yolo-v1.md §2): the
 // PlaybackState, which device is active, and the commands sent to devices.
@@ -46,7 +48,11 @@ export class HubCore {
   }
 
   async state() {
-    return (await this.storage.get(STATE_KEY)) || emptyPlaybackState();
+    const state = (await this.storage.get(STATE_KEY)) || emptyPlaybackState();
+    // A state saved before source plugins (Yolo 0.2) names its item in a form
+    // this version cannot address; treat it as stopped on the same device.
+    if (state.item && !isClaimed(state.item.source)) return { ...emptyPlaybackState(), deviceId: state.deviceId };
+    return state;
   }
 
   async setState(next) {
@@ -152,8 +158,10 @@ export class HubCore {
 
   // --- Playback --------------------------------------------------------
 
-  async play({ source, device: deviceRef = null, startTime = 0, reason = "play", sessionId = null, item = null }) {
+  // `source` may be an unclaimed { url } from the queue; the node claims it.
+  async play({ source: ref, device: deviceRef = null, startTime = 0, reason = "play", sessionId = null, item = null }) {
     const generation = ++this.generation;
+    const source = await claimSource(this.node, ref);
     const device = await this.resolveDevice(deviceRef);
     const previous = await this.state();
     const key = sourceKey(source);
@@ -314,7 +322,7 @@ export class HubCore {
 
   async listTracks(source = null) {
     const state = await this.state();
-    const target = source || state.item?.source;
+    const target = source ? await claimSource(this.node, source) : state.item?.source;
     if (!target) throw new YoloError("invalid_request", "Nothing is playing; pass an item to list its tracks");
     const tracks = await this.node.get("/internal/v1/tracks", { source: JSON.stringify(target) });
     const current = !source || (state.item && sourceKey(state.item.source) === sourceKey(target));

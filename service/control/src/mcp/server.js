@@ -7,13 +7,13 @@ import { TOOLS } from "./tools.js";
 // also heads off confusion with "YOLO mode" in coding agents.
 export const INSTRUCTIONS = [
   "Yolo is the user's private media service, not a \"YOLO mode\" or auto-approve setting.",
-  "It plays videos from URLs (YouTube, Bilibili, and other sites yt-dlp supports) and from the user's home media library on the user's screens, such as the Drive-In player in their Tesla, and keeps a queue, playlists, and watch history.",
+  "It plays videos from web URLs and from the user's home media library on the user's screens, such as the Drive-In player in their Tesla, and keeps a queue, playlists, and watch history. Which sites and libraries work depends on the source plugins on the user's home media node.",
   "Search before you play: use search or browse to get item ids, and never guess an id. A URL the user gives can be played directly.",
   "Playback goes to the active device by default. Pass device only when the user names one; list_devices shows the choices.",
   "If a tool returns node_offline, the home media node is unreachable: queue, playlists, and history still work, but playing and browsing the library do not.",
 ].join("\n");
 
-export const SERVER_INFO = Object.freeze({ name: "yolo", title: "Yolo media service", version: "0.1.0" });
+export const SERVER_INFO = Object.freeze({ name: "yolo", title: "Yolo media service", version: "0.2.0" });
 
 // Each tool names the one scope it needs (yolo-v1.md §3). Scopes do not imply
 // each other: a token with only `manage` cannot read status.

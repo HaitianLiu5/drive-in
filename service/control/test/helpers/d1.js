@@ -39,11 +39,16 @@ class Statement {
   }
 }
 
-export function createTestD1() {
+export const migrationFiles = () => readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort();
+export const applyMigration = (raw, file) => raw.exec(readFileSync(`${MIGRATIONS}${file}`, "utf8"));
+
+// `before` stops at that migration, to test data written by older versions.
+export function createTestD1({ before = null } = {}) {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
-  for (const file of readdirSync(MIGRATIONS).filter((name) => name.endsWith(".sql")).sort()) {
-    db.exec(readFileSync(`${MIGRATIONS}${file}`, "utf8"));
+  for (const file of migrationFiles()) {
+    if (before && file >= before) break;
+    applyMigration(db, file);
   }
   return {
     raw: db,

@@ -9,14 +9,19 @@
 //
 // Reads DRIVEIN_DB / DRIVEIN_RUNTIME_DIR like server/ does; --db and
 // --history override the paths. Nothing is written to the local files.
+// History and track preferences are keyed by source, so URLs are claimed by
+// the node's source plugins (the same config the node loads).
 import Database from "better-sqlite3";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
+import { loadPluginConfig } from "@useyolo/plugin-api/host";
 import { buildImportSql } from "../src/import-legacy.js";
+import { loadPlugins } from "../src/plugins.js";
 
-const root = process.env.DRIVEIN_RUNTIME_DIR || fileURLToPath(new URL("../../../", import.meta.url));
+const repository = fileURLToPath(new URL("../../../", import.meta.url));
+const root = process.env.DRIVEIN_RUNTIME_DIR || repository;
 const { values } = parseArgs({
   options: {
     user: { type: "string" },
@@ -39,5 +44,19 @@ if (existsSync(values.db)) {
 }
 const history = existsSync(values.history) ? JSON.parse(readFileSync(values.history, "utf8")) : [];
 
-process.stdout.write(buildImportSql({ userId: values.user, history: Array.isArray(history) ? history : [], ...tables }));
+// Plugin messages go to stderr so stdout stays pure SQL.
+const plugins = await loadPlugins(loadPluginConfig({ root: repository }).plugins, { logger: { ...console, info: console.error, debug: () => {} } });
+await plugins.start();
+try {
+  const { sql, skipped } = await buildImportSql({
+    userId: values.user,
+    history: Array.isArray(history) ? history : [],
+    ...tables,
+    claim: (url) => plugins.sources.claim(url),
+  });
+  process.stdout.write(sql);
+  for (const line of skipped) console.error(`Skipped ${line}`);
+} finally {
+  await plugins.shutdown();
+}
 console.error(`Exported ${tables.queue.length} queue items, ${tables.playlists.length} playlists, ${tables.playlistItems.length} playlist items, ${history.length} history entries, ${tables.preferences.length} preferences`);

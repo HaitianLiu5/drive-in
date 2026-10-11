@@ -9,7 +9,7 @@ import { getTrackPreferences, saveTrackPreferences } from "../../src/store/prefe
 
 const user = "usr_a";
 const other = "usr_b";
-const video = (n) => ({ source: { kind: "url", url: `https://example.com/v/${n}` }, title: `Video ${n}` });
+const video = (n) => ({ source: { plugin: "web", id: `https://example.com/v/${n}`, url: `https://example.com/v/${n}` }, title: `Video ${n}` });
 
 test("queue keeps order for next and end, scoped by user", async () => {
   const db = createTestD1();
@@ -57,8 +57,9 @@ test("playlists hold ordered items and delete cleanly", async () => {
 
 test("history upserts by source key and keeps the newest 500", async () => {
   const db = createTestD1();
-  await history.recordPlay(db, user, { source: { kind: "url", url: "https://youtu.be/abc" }, title: "A" });
-  await history.recordPlay(db, user, { source: { kind: "url", url: "https://www.youtube.com/watch?v=abc" }, title: "A again" });
+  // Two spellings of one video share the source id their plugin chose.
+  await history.recordPlay(db, user, { source: { plugin: "web", id: "https://video.test/abc", url: "https://short.test/abc" }, title: "A" });
+  await history.recordPlay(db, user, { source: { plugin: "web", id: "https://video.test/abc", url: "https://video.test/abc?t=3" }, title: "A again" });
   let entries = await history.listHistory(db, user);
   assert.equal(entries.length, 1);
   assert.equal(entries[0].playCount, 2);
@@ -66,21 +67,21 @@ test("history upserts by source key and keeps the newest 500", async () => {
 
   const insert = db.raw.prepare("INSERT INTO history (user_id, source_key, source, title, updated_at) VALUES (?, ?, '{}', 't', ?)");
   db.raw.transaction(() => {
-    for (let i = 0; i < HISTORY_LIMIT + 20; i += 1) insert.run(user, `plex:${i}`, i);
+    for (let i = 0; i < HISTORY_LIMIT + 20; i += 1) insert.run(user, `library:${i}`, i);
   })();
-  await history.recordPlay(db, user, { source: { kind: "plex", ratingKey: "new" }, title: "New" });
+  await history.recordPlay(db, user, { source: { plugin: "library", id: "new" }, title: "New" });
   entries = await history.listHistory(db, user, { limit: 1000 });
   assert.equal(entries.length, HISTORY_LIMIT);
-  assert.equal(entries[0].sourceKey, "plex:new");
-  assert.equal(await history.deleteHistory(db, user, "plex:new"), 1);
+  assert.equal(entries[0].sourceKey, "library:new");
+  assert.equal(await history.deleteHistory(db, user, "library:new"), 1);
   assert.equal(await history.deleteHistory(db, user), HISTORY_LIMIT - 1);
 });
 
 test("track preferences store a default row alongside the source row", async () => {
   const db = createTestD1();
-  await saveTrackPreferences(db, user, "plex:1", { subtitles: [{ id: "s1", language: "en", name: "", format: "text" }], audio: null });
-  const same = await getTrackPreferences(db, user, "plex:1");
-  const otherSource = await getTrackPreferences(db, user, "plex:2");
+  await saveTrackPreferences(db, user, "library:1", { subtitles: [{ id: "s1", language: "en", name: "", format: "text" }], audio: null });
+  const same = await getTrackPreferences(db, user, "library:1");
+  const otherSource = await getTrackPreferences(db, user, "library:2");
   assert.equal(same.saved.subtitles[0].id, "s1");
   assert.equal(otherSource.saved, null);
   assert.equal(otherSource.fallback.subtitles[0].language, "en");

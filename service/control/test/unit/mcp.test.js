@@ -65,8 +65,8 @@ test("tools call through to the services", async () => {
   const plane = createTestControlPlane();
   const client = await connect(plane.services);
   const search = parse(await client.callTool({ name: "search", arguments: { query: "Alien" } }));
-  assert.equal(search.results[0].id, "plex:42");
-  const played = parse(await client.callTool({ name: "play", arguments: { item_id: "plex:42" } }));
+  assert.equal(search.results[0].id, "library:42");
+  const played = parse(await client.callTool({ name: "play", arguments: { item_id: "library:42" } }));
   assert.equal(played.device.name, "Drive-In");
   const status = parse(await client.callTool({ name: "get_status", arguments: {} }));
   assert.equal(status.playback.item.title, "Movie 42");
@@ -75,7 +75,7 @@ test("tools call through to the services", async () => {
   assert.equal(parse(await client.callTool({ name: "queue_list", arguments: {} })).length, 1);
   assert.equal(parse(await client.callTool({ name: "queue_clear", arguments: {} })).cleared, 1);
   const history = parse(await client.callTool({ name: "history", arguments: { limit: 5 } }));
-  assert.equal(history[0].sourceKey, "plex:42");
+  assert.equal(history[0].sourceKey, "library:42");
   await client.close();
 });
 

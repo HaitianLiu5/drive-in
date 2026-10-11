@@ -63,33 +63,37 @@ export function createFakeNode(routes = {}) {
   return node;
 }
 
-// A node with one legacy renderer (today's Drive-In player) and a library.
+// What the fake node's URL source answers when it claims a URL.
+export const webSource = (url) => ({ plugin: "web", id: url.toLowerCase(), url });
+const fakeTitle = (source) => (source.plugin === "library" ? `Movie ${source.id}` : "A video");
+
+// A node with one legacy renderer (today's Drive-In player), a library
+// source ("library"), and a source that claims every URL ("web").
 export function createDefaultNode() {
   return createFakeNode({
-    "GET /internal/v1/health": () => ({ version: "0.1.0", legacy: { online: true } }),
+    "GET /internal/v1/health": () => ({ version: "0.2.0", legacy: { online: true } }),
     "GET /internal/v1/renderers": () => ({
       renderers: [{ id: "legacy", name: "Drive-In", kind: "car", online: true, capabilities: { renderer: "external" } }],
     }),
+    "POST /internal/v1/claim": (body) => ({ source: webSource(body.url) }),
     "POST /internal/v1/prepare": (body) => ({
       sessionId: body.sessionId,
       delivery: { type: "external", renderer: body.renderer },
-      title: body.source.kind === "plex" ? `Movie ${body.source.ratingKey}` : "A video",
+      title: fakeTitle(body.source),
       duration: 600,
       isLive: false,
       startTime: body.startTime,
       tracks: { subtitles: [], audio: [], selected: { subtitles: [], audio: null } },
     }),
-    "POST /internal/v1/metadata": (body) => ({
-      title: body.source.kind === "plex" ? `Movie ${body.source.ratingKey}` : "A video",
-      thumbnail: null,
-      duration: 600,
-      isLive: false,
-    }),
+    "POST /internal/v1/metadata": (body) => {
+      const source = body.source ?? webSource(body.url);
+      return { source, title: fakeTitle(source), thumbnail: null, duration: 600, isLive: false };
+    },
     "POST /internal/v1/sessions/*/control": () => ({ ok: true }),
     "POST /internal/v1/sessions/*/stop": () => ({ ok: true }),
-    "GET /internal/v1/library": () => ({ libraries: [{ id: "plex:1", title: "Movies", type: "movie" }] }),
+    "GET /internal/v1/library": () => ({ libraries: [{ id: "library:1", title: "Movies", type: "movie" }] }),
     "GET /internal/v1/library/search": (query) => ({
-      results: [{ id: "plex:42", kind: "movie", title: `Result for ${query.q}` }],
+      results: [{ id: "library:42", kind: "movie", title: `Result for ${query.q}` }],
     }),
   });
 }

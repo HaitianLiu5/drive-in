@@ -23,10 +23,10 @@ function createApi({ scopes = ["read", "control", "manage"], plane = createTestC
 
 test("queue and playlist endpoints round-trip", async () => {
   const { request } = createApi();
-  const added = await request("POST", "/v1/queue", { itemId: "plex:1" });
+  const added = await request("POST", "/v1/queue", { itemId: "library:1" });
   assert.equal(added.status, 201);
   assert.equal(added.body.item.title, "Movie 1");
-  await request("POST", "/v1/queue", { source: { kind: "url", url: "https://example.com/a" }, position: "next" });
+  await request("POST", "/v1/queue", { source: { url: "https://example.com/a" }, position: "next" });
   const queue = await request("GET", "/v1/queue");
   assert.deepEqual(queue.body.map((item) => item.title), ["A video", "Movie 1"]);
   const reordered = await request("POST", "/v1/queue/reorder", { ids: [queue.body[1].id] });
@@ -35,7 +35,7 @@ test("queue and playlist endpoints round-trip", async () => {
 
   const playlist = await request("POST", "/v1/playlists", { name: "Trip" });
   assert.equal(playlist.status, 201);
-  await request("POST", `/v1/playlists/${playlist.body.id}/items`, { itemId: "plex:2" });
+  await request("POST", `/v1/playlists/${playlist.body.id}/items`, { itemId: "library:2" });
   const renamed = await request("PATCH", `/v1/playlists/${playlist.body.id}`, { name: "Road trip" });
   assert.equal(renamed.body.name, "Road trip");
   const enqueued = await request("POST", `/v1/playlists/${playlist.body.id}/enqueue`, { position: "end" });
@@ -46,7 +46,7 @@ test("queue and playlist endpoints round-trip", async () => {
 
 test("playback endpoints drive the hub", async () => {
   const { request } = createApi();
-  const played = await request("POST", "/v1/playback/play", { itemId: "plex:5", startTime: 12 });
+  const played = await request("POST", "/v1/playback/play", { itemId: "library:5", startTime: 12 });
   assert.equal(played.status, 200);
   assert.equal(played.body.state.position, 12);
   assert.equal((await request("POST", "/v1/playback/pause")).body.state.status, "paused");
@@ -55,8 +55,8 @@ test("playback endpoints drive the hub", async () => {
   assert.equal(playback.body.item.title, "Movie 5");
   assert.equal((await request("POST", "/v1/playback/stop")).body.state.status, "idle");
   const history = await request("GET", "/v1/history?limit=5");
-  assert.equal(history.body[0].sourceKey, "plex:5");
-  assert.equal((await request("DELETE", "/v1/history", { sourceKey: "plex:5" })).body.deleted, 1);
+  assert.equal(history.body[0].sourceKey, "library:5");
+  assert.equal((await request("DELETE", "/v1/history", { sourceKey: "library:5" })).body.deleted, 1);
 });
 
 test("errors use the shared error body and status codes", async () => {

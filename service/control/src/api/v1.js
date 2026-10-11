@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { errorBody, isHttpUrl, normalizeSource, sourceFromRef, toYoloError, YoloError } from "@useyolo/core";
+import { errorBody, isHttpUrl, normalizeSourceRef, sourceFromRef, toYoloError, YoloError } from "@useyolo/core";
 
 // HTTP API under /v1 (yolo-v1.md §5). OAuthProvider has already validated the
 // bearer token; `getContext(c)` supplies { services, scopes, userId }.
@@ -8,7 +8,7 @@ function sourceParam(value) {
   if (!value) return null;
   if (value.startsWith("{")) {
     try {
-      return normalizeSource(JSON.parse(value));
+      return normalizeSourceRef(JSON.parse(value));
     } catch {
       throw new YoloError("invalid_request", "source must be a Source JSON object, a URL, or an item id");
     }
@@ -65,7 +65,7 @@ export function createV1App({ getContext, issueRealtimeTicket }) {
   app.post("/playback/play", control, async (c) => {
     const input = await body(c);
     return c.json(await svc(c).play({
-      source: input.source ? normalizeSource(input.source) : undefined,
+      source: input.source ? normalizeSourceRef(input.source) : undefined,
       itemId: input.itemId,
       url: input.url,
       queueItemId: input.queueItemId,
@@ -92,7 +92,7 @@ export function createV1App({ getContext, issueRealtimeTicket }) {
   app.post("/queue", manage, async (c) => {
     const input = await body(c);
     return c.json(await svc(c).addToQueue({
-      source: input.source ? normalizeSource(input.source) : undefined,
+      source: input.source ? normalizeSourceRef(input.source) : undefined,
       url: input.url,
       itemId: input.itemId,
       position: input.position ?? "end",
@@ -118,7 +118,7 @@ export function createV1App({ getContext, issueRealtimeTicket }) {
   app.post("/playlists/:id/items", manage, async (c) => {
     const input = await body(c);
     return c.json(await svc(c).addToPlaylist(c.req.param("id"), {
-      source: input.source ? normalizeSource(input.source) : undefined,
+      source: input.source ? normalizeSourceRef(input.source) : undefined,
       url: input.url,
       itemId: input.itemId,
     }), 201);

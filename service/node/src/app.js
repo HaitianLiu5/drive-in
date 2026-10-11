@@ -1,13 +1,12 @@
 import { Hono } from "hono";
 import { errorBody, normalizeSource, toYoloError, verifyNodeRequest, YoloError } from "@useyolo/core";
 import { createOwnerCodes } from "./owner-code.js";
-import { describeInfo, playlistFromInfo, subtitleTracks } from "./ytdlp.js";
 
 // The node's internal API (yolo-v1.md §8). Only the control plane calls it,
 // through Workers VPC; every request must also carry a valid NODE_SECRET
 // signature (defense in depth).
 
-export const NODE_VERSION = "0.1.0";
+export const NODE_VERSION = "0.2.0";
 
 function baseApp(secret) {
   if (!secret) throw new Error("NODE_SECRET is required");
@@ -42,29 +41,36 @@ const json = async (c) => {
   }
 };
 
-export function createNodeApp({ secret, plex, ytdlp, legacy, ownerCodes = createOwnerCodes(), startedAt = Date.now() }) {
+// `plugins` is the plugin host from loadPlugins(): its source registry
+// answers every source and library call, and its status goes into /health.
+export function createNodeApp({ secret, plugins, legacy, ownerCodes = createOwnerCodes(), startedAt = Date.now() }) {
   const app = baseApp(secret);
   app.use("/internal/*", requireSignature(secret));
+  const sources = plugins.sources;
 
   const v1 = new Hono();
 
   v1.get("/health", async (c) => {
-    const [legacyHealth, library, ytdlpVersion] = await Promise.all([legacy.health(), plex.health(), ytdlp.version()]);
+    const [legacyHealth, sourceHealth] = await Promise.all([legacy.health(), sources.health()]);
     return c.json({
       version: NODE_VERSION,
       uptime: Math.floor((Date.now() - startedAt) / 1000),
       legacy: legacyHealth,
-      library,
-      ytdlp: { available: Boolean(ytdlpVersion), version: ytdlpVersion },
+      sources: sourceHealth,
+      plugins: plugins.status(),
     });
   });
 
   v1.get("/renderers", async (c) => c.json({ renderers: await legacy.renderers() }));
 
+  // A URL becomes a Source when the first source plugin claims it.
+  v1.post("/claim", async (c) => c.json({ source: await sources.claim((await json(c)).url) }));
+
+  // { source } or { url }; returns the (claimed) source with its metadata.
   v1.post("/metadata", async (c) => {
-    const source = normalizeSource((await json(c)).source);
-    if (source.kind === "plex") return c.json(await plex.describe(source.ratingKey));
-    return c.json(describeInfo(await ytdlp.info(source.url)));
+    const input = await json(c);
+    const source = input.source ? normalizeSource(input.source) : await sources.claim(input.url);
+    return c.json({ source, ...(await sources.describe(source)) });
   });
 
   v1.get("/tracks", async (c) => {
@@ -74,30 +80,25 @@ export function createNodeApp({ secret, plex, ytdlp, legacy, ownerCodes = create
     } catch (error) {
       throw error instanceof YoloError ? error : new YoloError("invalid_request", "source must be a Source JSON object");
     }
-    if (source.kind === "plex") return c.json(await plex.tracks(source.ratingKey));
-    return c.json({ subtitles: subtitleTracks(await ytdlp.info(source.url)), audio: [] });
+    return c.json(await sources.tracks(source));
   });
 
-  v1.post("/playlists/expand", async (c) => {
-    const { url } = await json(c);
-    return c.json(playlistFromInfo(await ytdlp.flatPlaylist(url), url));
-  });
+  v1.post("/playlists/expand", async (c) => c.json(await sources.expand((await json(c)).url)));
 
   // --- Library -------------------------------------------------------------
-  v1.get("/library", async (c) => c.json({ libraries: await plex.libraries() }));
-  v1.get("/library/search", async (c) => {
-    const query = String(c.req.query("q") || "").trim();
-    if (!query) throw new YoloError("invalid_request", "q is required");
-    return c.json(await plex.search(query, { type: c.req.query("type") || null, limit: c.req.query("limit") }));
-  });
-  v1.get("/library/items/:id/children", async (c) => c.json(await plex.children(c.req.param("id"))));
+  v1.get("/library", async (c) => c.json(await sources.libraries()));
+  v1.get("/library/search", async (c) => c.json(await sources.search(c.req.query("q"), {
+    type: c.req.query("type") || null,
+    limit: c.req.query("limit"),
+  })));
+  v1.get("/library/items/:id/children", async (c) => c.json(await sources.children(c.req.param("id"))));
   v1.get("/library/items/:id/artwork", async (c) => {
-    const upstream = await plex.artwork(c.req.param("id"), c.req.query("variant"));
+    const upstream = await sources.artwork(c.req.param("id"), c.req.query("variant"));
     return new Response(upstream.body, {
       headers: { "content-type": upstream.headers.get("content-type") || "image/jpeg" },
     });
   });
-  v1.get("/library/:libraryId/items", async (c) => c.json(await plex.libraryItems(c.req.param("libraryId"), {
+  v1.get("/library/:libraryId/items", async (c) => c.json(await sources.items(c.req.param("libraryId"), {
     offset: c.req.query("offset"),
     limit: c.req.query("limit"),
   })));
@@ -108,7 +109,7 @@ export function createNodeApp({ secret, plex, ytdlp, legacy, ownerCodes = create
   // need the media pipeline that still lives in server/.
   v1.post("/prepare", async (c) => {
     const input = await json(c);
-    const source = normalizeSource(input.source);
+    const source = sources.require(input.source);
     if (input.renderer !== legacy.rendererId) {
       throw new YoloError("resolve_failed", "This node cannot stream to realtime devices yet; play on Drive-In instead");
     }
@@ -123,12 +124,11 @@ export function createNodeApp({ secret, plex, ytdlp, legacy, ownerCodes = create
   v1.post("/sessions/:id/stop", async (c) => c.json(await legacy.stop(c.req.param("id"))));
   v1.post("/sessions/:id/tracks", async (c) => {
     const input = await json(c);
-    const source = normalizeSource(input.source);
+    const source = sources.require(input.source);
     const result = await legacy.setTracks(c.req.param("id"), { subtitles: input.subtitles, audio: input.audio });
-    const tracks = source.kind === "plex" ? await plex.tracks(source.ratingKey) : { subtitles: subtitleTracks(await ytdlp.info(source.url)), audio: [] };
-    return c.json({ tracks, reload: result.reload });
+    return c.json({ tracks: await sources.tracks(source), reload: result.reload });
   });
-  // The Drive-In server writes Plex progress itself today.
+  // The Drive-In server writes library progress back itself today.
   v1.post("/sessions/:id/progress", (c) => c.json({ ok: true }));
 
   // --- Owner pairing code (decision 16) ------------------------------------

@@ -8,8 +8,8 @@ const READ_ONLY = Object.freeze({ readOnlyHint: true, destructiveHint: false, op
 const WRITE = Object.freeze({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
 const DESTRUCTIVE = Object.freeze({ readOnlyHint: false, destructiveHint: true, openWorldHint: false });
 
-const url = z.string().describe("Video or page URL, e.g. a YouTube or Bilibili link");
-const itemId = z.string().describe("Library item id from search or browse, e.g. \"plex:12345\"");
+const url = z.string().describe("Web address of a video page or file, such as a link the user shared");
+const itemId = z.string().describe("Library item id exactly as search or browse returned it, in the form \"<source>:<id>\"");
 const queuePosition = z.enum(["next", "end"]).describe("\"next\" plays it after the current item; \"end\" appends");
 const playlistId = z.string().describe("Playlist id from playlist_list");
 const device = z.string().describe("Device name or id from list_devices. Omit to use the active device");
@@ -199,7 +199,7 @@ export const TOOLS = [
   {
     name: "playlist_import",
     title: "Import a playlist",
-    description: "Save an external playlist (for example a YouTube or Bilibili playlist URL) as a new playlist, optionally adding it to the queue.",
+    description: "Save an external playlist (the URL of a playlist on a video site) as a new playlist, optionally adding it to the queue.",
     scope: "manage",
     annotations: WRITE,
     input: z.object({

@@ -3,9 +3,9 @@ import { test } from "node:test";
 import { selectTracks, preferenceFromTrack, trackLanguage } from "../src/index.js";
 
 const available = [
-  { id: "plex:1", language: "eng", name: "English (SDH)", format: "text" },
-  { id: "plex:2", language: "chi", name: "简体", format: "text" },
-  { id: "plex:3", language: "zh-Hant", name: "繁體", format: "image" },
+  { id: "lib:1", language: "eng", name: "English (SDH)", format: "text" },
+  { id: "lib:2", language: "chi", name: "简体", format: "text" },
+  { id: "lib:3", language: "zh-Hant", name: "繁體", format: "image" },
 ];
 
 test("trackLanguage folds common spellings", () => {
@@ -21,10 +21,10 @@ test("no preference returns null; explicit off returns []", () => {
 
 test("default preference matches by language and format on another source", () => {
   const fallback = [preferenceFromTrack({ id: "s_zh", language: "zh", name: "Chinese", format: "text" })];
-  assert.deepEqual(selectTracks({ fallback, available }).map((track) => track.id), ["plex:2"]);
+  assert.deepEqual(selectTracks({ fallback, available }).map((track) => track.id), ["lib:2"]);
 });
 
 test("saved preference for the same source matches the exact id first", () => {
   const saved = [preferenceFromTrack(available[2])];
-  assert.deepEqual(selectTracks({ saved, available }).map((track) => track.id), ["plex:3"]);
+  assert.deepEqual(selectTracks({ saved, available }).map((track) => track.id), ["lib:3"]);
 });

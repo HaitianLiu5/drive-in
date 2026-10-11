@@ -6,14 +6,14 @@ import { createDefaultNode, createFakeTransport, createMemoryStorage } from "./f
 export const USER = "usr_test";
 
 // A full control plane minus Workers: real migrations, HubCore, services.
-export function createTestControlPlane({ node = createDefaultNode(), connected = [] } = {}) {
-  const db = createTestD1();
-  db.raw.prepare("INSERT INTO users (id, user_id, display_name, created_at) VALUES (?, ?, 'Owner', 0)").run(USER, USER);
+export function createTestControlPlane({ node = createDefaultNode(), connected = [], db = createTestD1() } = {}) {
+  db.raw.prepare("INSERT OR IGNORE INTO users (id, user_id, display_name, created_at) VALUES (?, ?, 'Owner', 0)").run(USER, USER);
   const transport = createFakeTransport(connected);
   let clock = 1_000_000;
+  const storage = createMemoryStorage();
   const hub = new HubCore({
     userId: USER,
-    storage: createMemoryStorage(),
+    storage,
     db,
     node,
     transport,
@@ -21,7 +21,7 @@ export function createTestControlPlane({ node = createDefaultNode(), connected =
   });
   const services = createServices({ db, userId: USER, hub, node });
   return {
-    db, node, transport, hub, services,
+    db, node, transport, hub, services, storage,
     advance(ms) {
       clock += ms;
     },

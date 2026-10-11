@@ -81,7 +81,7 @@ async function signed(app, method, path, body) {
 }
 
 function nodeApp(ownerCodes) {
-  return createNodeApp({ secret, ownerCodes, plex: {}, ytdlp: {}, legacy: {} });
+  return createNodeApp({ secret, ownerCodes, plugins: { sources: {}, status: () => [] }, legacy: {} });
 }
 
 test("the control plane's listener can verify and consume a code but never issue one", async () => {

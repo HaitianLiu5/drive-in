@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { canonicalUrl, sourceFromRef, sourceKey, sourceFromKey, libraryItemId, YoloError } from "../src/index.js";
+import { isClaimed, isSourceKey, normalizeSource, normalizeSourceRef, sourceFromRef, sourceKey, YoloError } from "../src/index.js";
 
 test("sourceFromRef accepts URLs, library item ids, and Source objects", () => {
-  assert.deepEqual(sourceFromRef("https://youtu.be/abc"), { kind: "url", url: "https://youtu.be/abc" });
-  assert.deepEqual(sourceFromRef("plex:123"), { kind: "plex", ratingKey: "123" });
-  assert.deepEqual(sourceFromRef({ kind: "plex", ratingKey: 7 }), { kind: "plex", ratingKey: "7" });
+  assert.deepEqual(sourceFromRef(" https://video.test/watch?v=1 "), { url: "https://video.test/watch?v=1" });
+  assert.deepEqual(sourceFromRef("library:123"), { plugin: "library", id: "123" });
+  assert.deepEqual(sourceFromRef({ plugin: "library", id: 7, cut: "director" }), { plugin: "library", id: "7", cut: "director" });
+  assert.deepEqual(sourceFromRef({ url: "https://video.test/a" }), { url: "https://video.test/a" });
 });
 
 test("sourceFromRef rejects guesses with a hint to search", () => {
@@ -13,21 +14,31 @@ test("sourceFromRef rejects guesses with a hint to search", () => {
     error instanceof YoloError && error.code === "invalid_request" && /search/.test(error.message)
   ));
   assert.throws(() => sourceFromRef("javascript:alert(1)"), YoloError);
+  assert.throws(() => sourceFromRef("Library:1"), YoloError);
 });
 
-test("canonicalUrl folds YouTube spellings and drops tracking parameters", () => {
-  const expected = "https://youtube.com/watch?v=abc";
-  assert.equal(canonicalUrl("https://youtu.be/abc?si=xyz"), expected);
-  assert.equal(canonicalUrl("https://www.youtube.com/watch?v=abc&t=42&utm_source=x"), expected);
-  assert.equal(canonicalUrl("https://m.youtube.com/shorts/abc"), expected);
-  assert.equal(canonicalUrl("http://Example.com/a?b=2&a=1#frag"), "https://example.com/a?a=1&b=2");
+test("sources are plugin-owned: core checks plugin and id and keeps the rest", () => {
+  assert.deepEqual(normalizeSource({ plugin: "web", id: "https://video.test/a", url: "https://video.test/a?x=1" }), {
+    plugin: "web", id: "https://video.test/a", url: "https://video.test/a?x=1",
+  });
+  assert.throws(() => normalizeSource({ plugin: "Web", id: "1" }), { code: "invalid_request" });
+  assert.throws(() => normalizeSource({ plugin: "web", id: "" }), { code: "invalid_request" });
+  assert.throws(() => normalizeSource({ plugin: "web", id: "1", blob: "x".repeat(5000) }), /small JSON/);
+  assert.throws(() => normalizeSource({ kind: "old", ratingKey: "1" }), /migration 0003/);
 });
 
-test("sourceKey round-trips through sourceFromKey", () => {
-  assert.equal(sourceKey({ kind: "plex", ratingKey: "9" }), "plex:9");
-  const key = sourceKey({ kind: "url", url: "https://youtu.be/abc" });
-  assert.equal(key, "url:https://youtube.com/watch?v=abc");
-  assert.deepEqual(sourceFromKey(key), { kind: "url", url: "https://youtube.com/watch?v=abc" });
-  assert.equal(libraryItemId({ kind: "plex", ratingKey: "9" }), "plex:9");
-  assert.equal(libraryItemId({ kind: "url", url: "https://x.test" }), null);
+test("an unclaimed URL stays a reference until a plugin claims it", () => {
+  const ref = normalizeSourceRef({ kind: "old", url: "https://video.test/a" });
+  assert.deepEqual(ref, { url: "https://video.test/a" });
+  assert.equal(isClaimed(ref), false);
+  assert.throws(() => sourceKey(ref), /claimed/);
+  assert.throws(() => normalizeSourceRef({ url: "ftp://video.test/a" }), { code: "invalid_request" });
+});
+
+test("the source key is <plugin>:<id>", () => {
+  assert.equal(sourceKey({ plugin: "library", id: "9" }), "library:9");
+  assert.equal(sourceKey({ plugin: "web", id: "https://video.test/a", url: "https://video.test/a?si=1" }), "web:https://video.test/a");
+  assert.equal(isSourceKey("web:https://video.test/a"), true);
+  assert.equal(isSourceKey("default"), false);
+  assert.equal(isSourceKey(":x"), false);
 });

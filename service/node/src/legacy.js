@@ -1,21 +1,27 @@
-import { YoloError } from "@useyolo/core";
+import { isHttpUrl, YoloError } from "@useyolo/core";
 
 // Bridge to the existing Drive-In server (server/, default :9090). Until the
 // media pipeline moves into this node, playback still happens there: the node
 // exposes that server's single player as the renderer "legacy", and the
 // control plane drives it with the same session calls it will use later.
 // Track preferences on this path are applied by the Drive-In server itself.
+//
+// This file is temporary (Yolo 0.3 deletes it with server/), so it is the one
+// place in service/ allowed to know the two official source plugins: the
+// Drive-In server plays Plex library items through its own Plex routes, and
+// anything else by the page URL it runs yt-dlp on. It also reads Drive-In's
+// saved data for the one-time export to D1 (import-legacy.js).
 
 const RENDERER_ID = "legacy";
+// The source id of the official Plex plugin (plugins/source-plex).
+const PLEX_SOURCE = "plex";
 
-export function sourceFromLegacyUrl(url) {
-  if (!url) return null;
-  if (url.startsWith("plex://")) return { kind: "plex", ratingKey: url.slice("plex://".length) };
-  return { kind: "url", url };
+// How the Drive-In server identifies what it plays: "plex://<ratingKey>" for
+// Plex items, otherwise the page URL. Null for a source it cannot play.
+function legacyUrl(source) {
+  if (source?.plugin === PLEX_SOURCE) return `plex://${source.id}`;
+  return typeof source?.url === "string" && isHttpUrl(source.url) ? source.url : null;
 }
-
-const sameSource = (a, b) => Boolean(a && b) && a.kind === b.kind
-  && (a.kind === "plex" ? a.ratingKey === b.ratingKey : a.url === b.url);
 
 const STATUS = { idle: "idle", resolving: "loading", playing: "playing", paused: "paused" };
 
@@ -49,16 +55,18 @@ export function createLegacyBridge({ baseUrl, fetchImpl = fetch, timeoutMs = 45_
   }
 
   function startPlayback(source, { startTime = 0, reason = "play", subtitleStreamID, audioStreamID } = {}) {
-    if (source.kind === "plex") {
+    if (source.plugin === PLEX_SOURCE) {
       return call("POST", "/api/plex/play", {
-        ratingKey: source.ratingKey,
+        ratingKey: source.id,
         offset: Math.round(Math.max(0, startTime) * 1000),
         reason,
         ...(subtitleStreamID !== undefined ? { subtitleStreamID } : {}),
         ...(audioStreamID !== undefined ? { audioStreamID } : {}),
       });
     }
-    return call("POST", "/api/play", { url: source.url, startTime: Math.max(0, startTime), reason });
+    const url = legacyUrl(source);
+    if (!url) throw new YoloError("resolve_failed", `The Drive-In player cannot play ${source.plugin} items`);
+    return call("POST", "/api/play", { url, startTime: Math.max(0, startTime), reason });
   }
 
   function requireSession(sessionId) {
@@ -98,8 +106,8 @@ export function createLegacyBridge({ baseUrl, fetchImpl = fetch, timeoutMs = 45_
       } catch {
         return [];
       }
-      const source = sourceFromLegacyUrl(current.url);
-      const sessionId = [...sessions.entries()].reverse().find(([, value]) => sameSource(value, source))?.[0] ?? null;
+      const playing = current.url || null;
+      const sessionId = [...sessions.entries()].reverse().find(([, source]) => playing && legacyUrl(source) === playing)?.[0] ?? null;
       return [{
         id: RENDERER_ID,
         name: "Drive-In",
@@ -151,18 +159,18 @@ export function createLegacyBridge({ baseUrl, fetchImpl = fetch, timeoutMs = 45_
       const source = sessions.get(sessionId);
       sessions.delete(sessionId);
       // Only stop the player if it is still showing this session's source.
-      const current = sourceFromLegacyUrl((await status().catch(() => ({}))).url);
-      if (sameSource(current, source)) await call("POST", "/api/control", { action: "stop" });
+      const playing = (await status().catch(() => ({}))).url;
+      if (playing && playing === legacyUrl(source)) await call("POST", "/api/control", { action: "stop" });
       return { ok: true };
     },
 
-    // Track ids: URL subtitles are `s_<lang>`, library tracks are `plex:<streamId>`.
+    // Track ids: URL subtitles are `s_<lang>`, Plex tracks are `plex:<streamId>`.
     async setTracks(sessionId, { subtitles, audio }) {
       const source = requireSession(sessionId);
-      if (source.kind === "url") {
+      if (source.plugin !== PLEX_SOURCE) {
         if (audio) throw new YoloError("invalid_request", "This video has no selectable audio tracks");
         const langs = (subtitles || []).map((id) => String(id).replace(/^s_/, ""));
-        await call("POST", "/api/subtitles/select", { langs, sourceUrl: source.url });
+        await call("POST", "/api/subtitles/select", { langs, sourceUrl: legacyUrl(source) });
         return { reload: null };
       }
       const streamId = (id) => (id ? String(id).replace(/^plex:/, "") : null);
@@ -175,6 +183,63 @@ export function createLegacyBridge({ baseUrl, fetchImpl = fetch, timeoutMs = 45_
         audioStreamID: audio === undefined ? undefined : streamId(audio),
       });
       return { reload: null };
+    },
+  };
+}
+
+// --- Drive-In's saved data (one-time export, import-legacy.js) -------------
+// Each function returns a plugin Source, an unclaimed { url }, or null.
+
+const plexSource = (ratingKey) => ({ plugin: PLEX_SOURCE, id: String(ratingKey) });
+
+// A row of the Drive-In queue_items or playlist_items table.
+export function sourceFromDriveInRow(row) {
+  if (row.source_type === "plex" || row.rating_key) return row.rating_key ? plexSource(row.rating_key) : null;
+  return isHttpUrl(row.url) ? { url: row.url.trim() } : null;
+}
+
+// An entry of .play-history.json.
+export function sourceFromDriveInHistory(entry) {
+  if (entry.plex?.ratingKey) return plexSource(entry.plex.ratingKey);
+  return isHttpUrl(entry.url) ? { url: entry.url.trim() } : null;
+}
+
+// Drive-In thumbnails point at server/ proxy routes. Library items get the
+// control plane's artwork route; web thumbnails keep their original URL.
+export function thumbnailFromDriveIn(thumbnail, source) {
+  if (!thumbnail) return null;
+  if (source?.plugin === PLEX_SOURCE) return `/v1/library/items/${encodeURIComponent(`${PLEX_SOURCE}:${source.id}`)}/artwork?variant=landscape`;
+  if (thumbnail.startsWith("/api/thumb?")) return new URLSearchParams(thumbnail.split("?")[1]).get("url");
+  return isHttpUrl(thumbnail) ? thumbnail : null;
+}
+
+// A row of Drive-In's subtitle_preferences: { source, selection }, where
+// source is "default", "plex:<ratingKey>" or a page URL. Returns { ref,
+// selection } with ref "default", a Source or { url }, or null to skip.
+export function preferenceFromDriveIn(row) {
+  let tracks;
+  try {
+    tracks = JSON.parse(row.selection);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(tracks)) return null;
+  const key = String(row.source ?? "");
+  const ref = key === "default" ? "default"
+    : key.startsWith("plex:") ? plexSource(key.slice(5))
+      : isHttpUrl(key) ? { url: key } : null;
+  if (!ref) return null;
+  const plex = ref !== "default" && ref.plugin === PLEX_SOURCE;
+  return {
+    ref,
+    selection: {
+      subtitles: tracks.map((track) => ({
+        id: plex ? `plex:${track.id}` : `s_${track.id}`,
+        language: track.language || "",
+        name: track.title || "",
+        format: track.delivery === "external" ? "text" : "image",
+      })),
+      audio: null,
     },
   };
 }

@@ -5,7 +5,7 @@ import { upsertDevice } from "../../src/store/devices.js";
 import { addQueueItems, listQueue } from "../../src/store/queue.js";
 import { listHistory } from "../../src/store/history.js";
 
-const movie = { kind: "plex", ratingKey: "42" };
+const movie = { plugin: "library", id: "42" };
 
 test("play defaults to the only online device and records history", async () => {
   const plane = createTestControlPlane();
@@ -16,7 +16,7 @@ test("play defaults to the only online device and records history", async () => 
   const prepare = plane.node.calls.find((call) => call.path === "/internal/v1/prepare");
   assert.equal(prepare.body.renderer, "legacy");
   assert.deepEqual(prepare.body.tracks.preferences, { saved: null, fallback: null });
-  assert.equal((await listHistory(plane.db, USER))[0].sourceKey, "plex:42");
+  assert.equal((await listHistory(plane.db, USER))[0].sourceKey, "library:42");
   assert.equal(plane.transport.broadcasts.at(-1).type, "state");
 });
 
@@ -78,16 +78,16 @@ test("next plays the queue head; ended advances; empty queue goes idle", async (
   const car = await upsertDevice(plane.db, USER, { name: "Car", kind: "car", capabilities: {} });
   plane.transport.online.add(car.id);
   await addQueueItems(plane.db, USER, [
-    { source: { kind: "plex", ratingKey: "1" }, title: "One" },
-    { source: { kind: "plex", ratingKey: "2" }, title: "Two" },
+    { source: { plugin: "library", id: "1" }, title: "One" },
+    { source: { plugin: "library", id: "2" }, title: "Two" },
   ]);
   await plane.hub.control("next");
   let state = await plane.hub.state();
-  assert.equal(state.item.source.ratingKey, "1");
+  assert.equal(state.item.source.id, "1");
 
   await plane.hub.deviceMessage(car.id, { type: "ended", sessionId: state.sessionId });
   state = await plane.hub.state();
-  assert.equal(state.item.source.ratingKey, "2");
+  assert.equal(state.item.source.id, "2");
   assert.equal((await listQueue(plane.db, USER)).length, 0);
 
   await plane.hub.deviceMessage(car.id, { type: "ended", sessionId: state.sessionId });
@@ -106,12 +106,12 @@ test("a failed advance puts the item back at the head", async () => {
 
 test("previous plays the most recent other history entry", async () => {
   const plane = createTestControlPlane();
-  await plane.hub.play({ source: { kind: "plex", ratingKey: "1" } });
+  await plane.hub.play({ source: { plugin: "library", id: "1" } });
   plane.advance(1_000);
-  await plane.hub.play({ source: { kind: "plex", ratingKey: "2" } });
+  await plane.hub.play({ source: { plugin: "library", id: "2" } });
   plane.advance(1_000);
   await plane.hub.control("previous");
-  assert.equal((await plane.hub.state()).item.source.ratingKey, "1");
+  assert.equal((await plane.hub.state()).item.source.id, "1");
 });
 
 test("transfer continues on the new device and deactivates the old one", async () => {
@@ -142,13 +142,13 @@ test("several online devices without an active one require a choice", async () =
 test("set_tracks saves preferences that the next play passes to the node", async () => {
   const plane = createTestControlPlane();
   plane.node.routes["POST /internal/v1/sessions/*/tracks"] = () => ({
-    tracks: { subtitles: [{ id: "plex:7", kind: "subtitle", language: "zh", name: "简体", format: "text" }], audio: [] },
+    tracks: { subtitles: [{ id: "library:7", kind: "subtitle", language: "zh", name: "简体", format: "text" }], audio: [] },
   });
   await plane.hub.play({ source: movie });
-  await plane.hub.setTracks({ subtitles: ["plex:7"] });
-  assert.deepEqual((await plane.hub.state()).tracks.subtitles, ["plex:7"]);
+  await plane.hub.setTracks({ subtitles: ["library:7"] });
+  assert.deepEqual((await plane.hub.state()).tracks.subtitles, ["library:7"]);
 
-  await plane.hub.play({ source: { kind: "plex", ratingKey: "43" } });
+  await plane.hub.play({ source: { plugin: "library", id: "43" } });
   const prepare = plane.node.calls.filter((call) => call.path === "/internal/v1/prepare").at(-1);
   assert.equal(prepare.body.tracks.preferences.fallback.subtitles[0].language, "zh");
 });

@@ -1,9 +1,10 @@
-import { CONTROL_ACTIONS, isHttpUrl, sourceFromKey, sourceFromRef, sourceKey, toYoloError, YoloError } from "@useyolo/core";
+import { CONTROL_ACTIONS, isClaimed, isHttpUrl, isSourceKey, sourceFromRef, sourceKey, toYoloError, YoloError } from "@useyolo/core";
 import * as queueStore from "./store/queue.js";
 import * as playlistStore from "./store/playlists.js";
 import * as historyStore from "./store/history.js";
 import { deleteDevice, renameDevice } from "./store/devices.js";
 import { recordNodeSeen } from "./store/users.js";
+import { claimSource } from "./sources.js";
 
 // One service layer behind both the MCP tools and the /v1 HTTP API, so the
 // two surfaces cannot drift. `hub` is HubCore in tests and an RPC proxy to the
@@ -13,15 +14,20 @@ const METADATA_TIMEOUT_MS = 20_000;
 const HEALTH_TIMEOUT_MS = 3_000;
 
 export function createServices({ db, userId, hub, node }) {
-  // Title, thumbnail and duration for a source. Best effort: queue and
-  // playlist edits must keep working while the node is offline (§8).
-  async function describe(source) {
+  // Claim a URL and fetch title, thumbnail and duration. Best effort: queue
+  // and playlist edits must keep working while the node is offline (§8), so a
+  // URL then stays unclaimed until it plays.
+  async function describe(ref) {
     try {
-      const metadata = await node.post("/internal/v1/metadata", { source }, { timeoutMs: METADATA_TIMEOUT_MS });
-      return { source, title: metadata.title, thumbnail: metadata.thumbnail, duration: metadata.duration, metadata: {} };
+      const metadata = await node.post("/internal/v1/metadata", isClaimed(ref) ? { source: ref } : { url: ref.url }, {
+        timeoutMs: METADATA_TIMEOUT_MS,
+      });
+      return {
+        source: metadata.source ?? ref, title: metadata.title, thumbnail: metadata.thumbnail, duration: metadata.duration, metadata: {},
+      };
     } catch (error) {
       if (error?.code !== "node_offline" && error?.code !== "resolve_failed") throw error;
-      return { source, metadata: { pendingMetadata: true } };
+      return { source: ref, metadata: { pendingMetadata: true } };
     }
   }
 
@@ -84,9 +90,10 @@ export function createServices({ db, userId, hub, node }) {
       const text = String(query ?? "").trim();
       if (!text) throw new YoloError("invalid_request", "query is required");
       if (isHttpUrl(text)) {
-        const source = { kind: "url", url: text };
-        const metadata = await node.post("/internal/v1/metadata", { source }, { timeoutMs: METADATA_TIMEOUT_MS });
-        return { results: [{ id: text, kind: "url", ...metadata, source }] };
+        // `kind: "url"` says the result came from looking up a URL; the
+        // claiming plugin is in `source.plugin`.
+        const metadata = await node.post("/internal/v1/metadata", { url: text }, { timeoutMs: METADATA_TIMEOUT_MS });
+        return { results: [{ id: text, kind: "url", ...metadata }] };
       }
       return node.get("/internal/v1/library/search", { q: text, type, limit });
     },
@@ -118,7 +125,7 @@ export function createServices({ db, userId, hub, node }) {
           throw error;
         }
       }
-      const resolved = source ?? refToSource({ url, itemId });
+      const resolved = await claimSource(node, source ?? refToSource({ url, itemId }));
       // Resume where the user left off unless told otherwise.
       let startTime = startAt;
       if (startTime == null) {
@@ -137,7 +144,10 @@ export function createServices({ db, userId, hub, node }) {
 
     seek: (position) => hub.seek(position),
     transfer: (device) => hub.transfer(device),
-    listTracks: ({ source, url, itemId } = {}) => hub.listTracks(source ?? (url || itemId ? refToSource({ url, itemId }) : null)),
+    async listTracks({ source, url, itemId } = {}) {
+      const ref = source ?? (url || itemId ? refToSource({ url, itemId }) : null);
+      return hub.listTracks(ref ? await claimSource(node, ref) : null);
+    },
     setTracks: ({ subtitles, audio }) => hub.setTracks({ subtitles, audio }),
 
     // --- Queue ------------------------------------------------------------
@@ -219,7 +229,7 @@ export function createServices({ db, userId, hub, node }) {
       return { added: added.length, queue: await queueStore.listQueue(db, userId) };
     },
 
-    // Expand an external playlist (YouTube, Bilibili, …) on the node.
+    // A source plugin on the node expands an external playlist URL.
     async importPlaylist({ url, name = null, enqueue = false }) {
       if (!isHttpUrl(url)) throw new YoloError("invalid_request", "url must be an http(s) playlist URL");
       const expanded = await node.post("/internal/v1/playlists/expand", { url }, { timeoutMs: 60_000 });
@@ -247,7 +257,7 @@ export function createServices({ db, userId, hub, node }) {
     history: ({ limit } = {}) => historyStore.listHistory(db, userId, { limit }),
 
     async deleteHistory({ sourceKey: key = null } = {}) {
-      if (key) sourceFromKey(key);
+      if (key && !isSourceKey(key)) throw new YoloError("invalid_request", "sourceKey must look like <source>:<id>, as in history");
       return { deleted: await historyStore.deleteHistory(db, userId, key) };
     },
   };
