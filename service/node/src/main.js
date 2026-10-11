@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
@@ -19,9 +20,21 @@ try {
 const host = process.env.NODE_HOST || "127.0.0.1";
 const port = Number(process.env.NODE_PORT || 9191);
 
+// Same defaults as the Drive-In server: local Plex, and on macOS the token
+// Plex Media Server keeps in its own preferences.
+const plexUrl = process.env.PLEX_URL || "http://localhost:32400";
+const plexToken = process.env.PLEX_TOKEN || (() => {
+  try {
+    return execFileSync("defaults", ["read", "com.plexapp.plexmediaserver", "PlexOnlineToken"], { stdio: ["ignore", "pipe", "ignore"] })
+      .toString().trim();
+  } catch {
+    return "";
+  }
+})();
+
 const app = createNodeApp({
   secret: process.env.NODE_SECRET,
-  plex: createPlex({ url: process.env.PLEX_URL, token: process.env.PLEX_TOKEN }),
+  plex: createPlex({ url: plexUrl, token: plexToken }),
   ytdlp: createYtdlp(),
   legacy: createLegacyBridge({ baseUrl: process.env.DRIVEIN_LEGACY_URL || "http://127.0.0.1:9090" }),
 });

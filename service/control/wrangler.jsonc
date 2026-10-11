@@ -28,7 +28,7 @@
       "binding": "DB",
       "database_name": "yolo",
       // From `npx wrangler d1 create yolo`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "b33ec7d3-6379-49cf-8813-a1df06f47f32",
       "migrations_dir": "migrations"
     }
   ],
@@ -37,7 +37,7 @@
       // OAuth clients, grants and token hashes, plus sessions and tickets.
       "binding": "OAUTH_KV",
       // From `npx wrangler kv namespace create OAUTH_KV`.
-      "id": "00000000000000000000000000000000"
+      "id": "ae7c29f60da14b38ad201d57c152ae0f"
     }
   ],
   "durable_objects": {
@@ -49,7 +49,7 @@
       "binding": "NODE",
       // From `npx wrangler vpc service create yolo-node --type http
       //   --tunnel-id <TUNNEL_ID> --ipv4 127.0.0.1 --http-port 9191`.
-      "service_id": "REPLACE_WITH_VPC_SERVICE_ID"
+      "service_id": "01a1299c-18e1-73f2-a6c2-f3a368e3499d"
     }
   ]
   // Secrets (npx wrangler secret put …):
