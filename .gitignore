@@ -8,6 +8,7 @@ dist/
 .env
 .play-history.json
 .drive-in.sqlite*
+.yolo-node.sock
 .DS_Store
 *.log
 

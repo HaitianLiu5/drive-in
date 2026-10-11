@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { errorBody, normalizeSource, toYoloError, verifyNodeRequest, YoloError } from "@useyolo/core";
+import { createOwnerCodes } from "./owner-code.js";
 import { describeInfo, playlistFromInfo, subtitleTracks } from "./ytdlp.js";
 
 // The node's internal API (yolo-v1.md §8). Only the control plane calls it,
@@ -8,37 +9,42 @@ import { describeInfo, playlistFromInfo, subtitleTracks } from "./ytdlp.js";
 
 export const NODE_VERSION = "0.1.0";
 
-export function createNodeApp({ secret, plex, ytdlp, legacy, startedAt = Date.now() }) {
+function baseApp(secret) {
   if (!secret) throw new Error("NODE_SECRET is required");
   const app = new Hono();
-
   app.onError((error, c) => {
     const yolo = toYoloError(error);
     if (yolo.code === "internal") console.error("node request failed", error);
     return c.json(errorBody(yolo), yolo.status);
   });
   app.notFound((c) => c.json(errorBody(new YoloError("not_found", "No such endpoint")), 404));
+  return app;
+}
 
-  app.use("/internal/*", async (c, next) => {
-    const url = new URL(c.req.url);
-    const body = ["GET", "HEAD"].includes(c.req.method) ? "" : await c.req.raw.clone().text();
-    const ok = await verifyNodeRequest(secret, {
-      method: c.req.method,
-      path: url.pathname + url.search,
-      body,
-      headers: c.req.raw.headers,
-    });
-    if (!ok) return c.json(errorBody(new YoloError("unauthorized", "Bad or missing request signature")), 401);
-    await next();
+const requireSignature = (secret) => async (c, next) => {
+  const url = new URL(c.req.url);
+  const body = ["GET", "HEAD"].includes(c.req.method) ? "" : await c.req.raw.clone().text();
+  const ok = await verifyNodeRequest(secret, {
+    method: c.req.method,
+    path: url.pathname + url.search,
+    body,
+    headers: c.req.raw.headers,
   });
+  if (!ok) return c.json(errorBody(new YoloError("unauthorized", "Bad or missing request signature")), 401);
+  await next();
+};
 
-  const json = async (c) => {
-    try {
-      return await c.req.json();
-    } catch {
-      throw new YoloError("invalid_request", "Request body must be JSON");
-    }
-  };
+const json = async (c) => {
+  try {
+    return await c.req.json();
+  } catch {
+    throw new YoloError("invalid_request", "Request body must be JSON");
+  }
+};
+
+export function createNodeApp({ secret, plex, ytdlp, legacy, ownerCodes = createOwnerCodes(), startedAt = Date.now() }) {
+  const app = baseApp(secret);
+  app.use("/internal/*", requireSignature(secret));
 
   const v1 = new Hono();
 
@@ -125,10 +131,27 @@ export function createNodeApp({ secret, plex, ytdlp, legacy, startedAt = Date.no
   // The Drive-In server writes Plex progress itself today.
   v1.post("/sessions/:id/progress", (c) => c.json({ ok: true }));
 
+  // --- Owner pairing code (decision 16) ------------------------------------
+  // The control plane can check and use up a code, never issue one: issuing
+  // is only on the local app below.
+  v1.post("/owner-code/verify", async (c) => c.json(ownerCodes.verify((await json(c)).code)));
+  v1.post("/owner-code/consume", async (c) => c.json(ownerCodes.consume((await json(c)).code)));
+
   app.route("/internal/v1", v1);
 
   // Media (/m/{token}/…) still comes from the Drive-In server on this path.
   app.all("/m/*", (c) => c.json(errorBody(new YoloError("not_found", "Media streaming has not moved to the node yet")), 404));
 
+  return app;
+}
+
+// Owner commands run on the home machine (`npm run owner-code`). This app is
+// served only on the local Unix socket (local.js), never on the TCP listener
+// that the control plane reaches, so no request from Cloudflare can issue a
+// code. Requests must still be signed with NODE_SECRET.
+export function createLocalApp({ secret, ownerCodes }) {
+  const app = baseApp(secret);
+  app.use("*", requireSignature(secret));
+  app.post("/local/v1/owner-code", (c) => c.json(ownerCodes.issue()));
   return app;
 }

@@ -42,7 +42,8 @@
     "start": "npm run build && npm run start -w server",
     "start:tunnel": "npm run build && concurrently -k -n server,tunnel -c blue,magenta \"npm:start -w server\" \"cloudflared tunnel run\"",
     "dev:control": "npm run dev -w service/control",
-    "dev:node": "npm run start -w service/node"
+    "dev:node": "npm run start -w service/node",
+    "owner-code": "node service/node/scripts/owner-code.js"
   },
   "workspaces": [
     "server",

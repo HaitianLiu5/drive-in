@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { createNodeApp, NODE_VERSION } from "./app.js";
+import { createLocalApp, createNodeApp, NODE_VERSION } from "./app.js";
 import { createLegacyBridge } from "./legacy.js";
+import { listenLocal, localSocketPath } from "./local.js";
+import { createOwnerCodes } from "./owner-code.js";
 import { createPlex } from "./plex.js";
 import { createYtdlp } from "./ytdlp.js";
 
@@ -32,13 +34,22 @@ const plexToken = process.env.PLEX_TOKEN || (() => {
   }
 })();
 
+const ownerCodes = createOwnerCodes();
 const app = createNodeApp({
   secret: process.env.NODE_SECRET,
   plex: createPlex({ url: plexUrl, token: plexToken }),
   ytdlp: createYtdlp(),
   legacy: createLegacyBridge({ baseUrl: process.env.DRIVEIN_LEGACY_URL || "http://127.0.0.1:9090" }),
+  ownerCodes,
 });
 
 serve({ fetch: app.fetch, hostname: host, port }, () => {
   console.log(`Yolo node ${NODE_VERSION} listening on http://${host}:${port}`);
 });
+
+// Owner pairing codes are issued only on this socket (see local.js).
+const socketPath = localSocketPath();
+listenLocal(createLocalApp({ secret: process.env.NODE_SECRET, ownerCodes }), socketPath).then(
+  () => console.log(`Owner commands (npm run owner-code) on ${socketPath}`),
+  (error) => console.error(`Owner commands are unavailable: ${error.message}`),
+);
