@@ -71,7 +71,15 @@ v1 不做，但协议要给它们留位置：
 | 特斯拉、电视 | 设备码流程（RFC 8628）。车机屏幕显示二维码（`verification_uri_complete`）和备用短码；手机扫码打开已填好码的 `/device` 确认页。确认页显示设备名称、类型和发起时间；码 10 分钟过期、只能用一次；必须手动点"允许" |
 | 媒体节点 | 控制面通过 Workers VPC binding 访问节点，公网上没有节点地址。配对时生成 `nodeSecret`，用于请求签名（纵深防御）和媒体 URL 的签名密钥 |
 
-用户本人登录：只用 passkey。部署后第一次打开时，用一次性初始化码（存在 Worker secret 里）注册 passkey；设备全丢时，重置这个初始化码再注册一次。授权页、设备确认页和设置页都要求先登录。
+用户本人登录：只用 passkey（决策 16）。
+
+- 第一次注册 passkey，或者 passkey 全丢了要重置时，在家里机器上运行 `npm run owner-code`。节点打印一个 6 位数字配对码，在 `/login` 输入后创建 passkey。
+- 配对码由节点签发和校验，只存在节点内存里，Cloudflare 不存。15 分钟过期，错 5 次作废，只能用一次；重新申请会替换旧码，节点重启就没了。
+- 已有 passkey 时用配对码注册就是重置：新 passkey 保存后，删掉其他所有 passkey，撤销所有登录会话。没有网页找回。
+- 已登录时添加 passkey 不需要配对码。
+- 节点离线时没法用配对码注册，`/login` 会提示先启动节点。
+
+授权页、设备确认页和设置页都要求先登录。
 
 **Scope**
 
@@ -285,11 +293,15 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | GET | `/internal/v1/renderers` | 节点自己驱动的播放器（节点渲染器）列表，包括在线状态和当前进度 |
 | GET | `/internal/v1/library/…` | 和第 5 节的库接口一一对应 |
 | POST | `/internal/v1/playlists/expand` | 展开外部播放列表的 URL，返回 `Source` 列表 |
+| POST | `/internal/v1/owner-code/verify` | `{ code }`，检查用户本人的配对码（第 3 节），不消耗。错了也算一次尝试 |
+| POST | `/internal/v1/owner-code/consume` | `{ code }`，检查并用掉配对码。控制面在 passkey 校验通过之后、保存之前调用 |
 | GET | `/m/{token}/…` | 媒体流，用现有的代理、DASH 转 HLS、Plex HLS、字幕实现 |
 
 节点离线时：`prepare` 返回 `node_offline`。页面、MCP、队列管理照常可用，播放器显示"媒体节点离线"。
 
 **节点渲染器**：节点可以自己驱动一个播放器，控制面把它当成设备，id 为 `node:<id>`，命令经 `/internal/v1/sessions/:id/control` 转给节点。v1 用它接上现有的 Drive-In 服务（`node:legacy`）：在媒体管线搬进节点之前，agent 通过它控制车上现在的播放器。
+
+**配对码只能在本机签发**：签发接口 `POST /local/v1/owner-code` 不在上表里，也不在节点的 TCP 端口上，只挂在节点的本地 Unix socket 上（默认是仓库根目录的 `.yolo-node.sock`，权限 0600，可用 `NODE_LOCAL_SOCKET` 修改），由 `npm run owner-code` 调用，请求同样要带 `nodeSecret` 签名。签名区分不了请求来自用户本人还是控制面：控制面持有 `nodeSecret`，还会把公网上的 `/m/*` 路径签名后转给节点。cloudflared 和 Workers VPC 只能连 TCP 地址，连不到 Unix socket，所以控制面和公网都没法签发配对码。另开一个回环端口也能做到，但前提是 tunnel 永远不指向它，所以没有选。
 
 **请求签名**：请求头 `x-yolo-timestamp` 和 `x-yolo-signature`，签名为 `HMAC-SHA256(nodeSecret, 时间戳\n方法\n路径和查询串\nSHA-256(请求体))`，base64url 编码。时钟偏差超过 5 分钟即拒绝。
 
@@ -300,14 +312,13 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | `users`、`passkeys` | 用户 id、显示名；passkey 凭证（credential id、公钥、签名计数） |
 | `devices` | id、user_id、名称、类型、能力、最后在线时间 |
 | （KV）OAuth 客户端、授权、token | 由 `@cloudflare/workers-oauth-provider` 存在 `OAUTH_KV`，token 和密钥只存哈希，`props` 加密存储。所以 D1 里没有 `oauth_*` 表 |
-| `init_codes_used` | 用过的初始化码的哈希，保证每个码只能用一次 |
 | `nodes` | id、user_id、地址、密钥哈希、版本 |
 | `queue_items` | 由现在的表迁移过来，`source_type/url/rating_key` 合并成 `source` JSON |
 | `playlists`、`playlist_items` | 同上 |
 | `history` | source_key、标题、进度、时长、播放次数、更新时间。只保留最近 500 条。取代 `.play-history.json` |
 | `track_preferences` | source_key、选择。`default` 行记录最近一次的偏好。取代 `subtitle_preferences` |
 
-播放状态存在 Hub DO 自己的存储里，不进 D1。迁移脚本（`service/node/scripts/export-legacy-to-d1.js`）把现有的 SQLite 和 JSON 数据一次性导出成 SQL，再用 `wrangler d1 execute` 导入 D1。
+播放状态存在 Hub DO 自己的存储里，不进 D1。用户本人的配对码只在节点内存里，也不进 D1；以前存用过的初始化码的 `init_codes_used` 表由迁移 `0002` 删掉了。迁移脚本（`service/node/scripts/export-legacy-to-d1.js`）把现有的 SQLite 和 JSON 数据一次性导出成 SQL，再用 `wrangler d1 execute` 导入 D1。
 
 ## 10. MCP 工具（服务名 `yolo`）
 
@@ -354,7 +365,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 |---|---|---|
 | MCP（第 10 节全部 22 个工具，Streamable HTTP） | 已实现 | `service/control/src/mcp/` |
 | OAuth：动态注册、CIMD、授权码 + PKCE、可轮换的 refresh token、三个 scope、授权页 | 已实现 | `service/control/src/index.js`、`auth/` |
-| 用户本人 passkey 登录 + 一次性初始化码 | 已实现，只在本地验证过服务端流程，还没用真实浏览器和 passkey 测过 | `service/control/src/auth/` |
+| 用户本人 passkey 登录 + 节点签发的 6 位配对码（首次注册和重置） | 已实现。服务端流程和 `npm run owner-code` 在本地验证过，还没用真实浏览器和 passkey 测过 | `service/control/src/auth/`、`service/node/src/owner-code.js`、`local.js` |
 | `/v1` HTTP API（第 5 节） | 已实现 | `service/control/src/api/v1.js` |
 | Hub DO、`/v1/realtime`（票据、`hello`/`welcome`、`report`、`ended`、自动回复心跳、连接和消息限额） | 已实现，还没有客户端使用；心跳和限额 2026-10-11 在本地 Worker 上验证过 | `service/control/src/hub/` |
 | D1 表（第 9 节） | 已实现 | `service/control/migrations/` |
@@ -372,3 +383,17 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 - token 的 audience 是部署的源（例如 `https://yolo.haitian.site`），这样一个 token 同时覆盖 `/mcp` 和 `/v1`。protected resource 元数据在 `/.well-known/oauth-protected-resource`。
 - Agent 默认申请全部三个 scope（`requiredScopes`），用户可以在授权页取消勾选。scope 之间没有包含关系。
 - 删除设备目前只是删掉设备记录。设备 token 要等设备码登录做完才有。
+- 配对码重置只删 passkey 和网页登录会话，不撤销已经授权给 agent 的 OAuth token。设置页做好之前，要撤销 agent 只能手动删 `OAUTH_KV` 里的记录。
+
+**部署和第一次登录**
+
+在 `service/control` 下：
+
+1. `npx wrangler secret put NODE_SECRET`，值和家里 `.env` 里的 `NODE_SECRET` 相同。用户本人登录不需要别的 secret。
+2. `npx wrangler d1 migrations apply yolo --remote`。
+3. `npx wrangler deploy`。
+
+在家里机器的仓库根目录下：
+
+4. `npm run dev:node` 启动节点。cloudflared 要在运行，Workers VPC 服务指向 `127.0.0.1:9191`（见 `wrangler.jsonc`）。
+5. `npm run owner-code`，然后在 15 分钟内打开 `https://yolo.haitian.site/login`，输入打印出来的 6 位码，创建 passkey。passkey 全丢时，重复这一步就是重置。

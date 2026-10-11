@@ -1,6 +1,6 @@
 # Yolo 决策记录
 
-状态：v1 正在实现，进度见 [yolo-v1.md 第 12 节](yolo-v1.md#12-实现状态2026-10-09)。最后更新：2026-10-09。
+状态：v1 正在实现，进度见 [yolo-v1.md 第 12 节](yolo-v1.md#12-实现状态2026-10-09)。最后更新：2026-10-11。
 
 这份文档记录 Drive-In 演进成 Yolo 的背景、已定的决策和理由、放弃的方案，以及还没定的事。协议细节以 [yolo-v1.md](yolo-v1.md) 为准，这里不重复。
 
@@ -38,7 +38,7 @@ Agent 目前通过 `@drive-in/cli`（`cli/`）加 `skills/drive-in/SKILL.md` 来
 | 13 | 历史只保留**最近 500 条** | 足够找回最近看过的内容，又不会无限增长 | 不设上限 |
 | 14 | 仓库分成 `service/core`、`service/control`、`service/node`、`sdk/js`、`clients/tesla`、`plugin/` | 服务和客户端分开放；改名时 `service/`、`sdk/` 直接搬进新仓库，`clients/tesla` 留下来继续叫 Drive-In | 按运行时分目录 |
 | 15 | 新设备用**扫码配对**：车机显示二维码（RFC 8628 的 `verification_uri_complete`）和备用短码，手机扫码后打开已填好码的确认页 | 车机上不用打字；车机没有摄像头，所以只能车上显示、手机扫。为防设备码钓鱼：确认页醒目显示设备名称、类型和发起时间；码 10 分钟过期、只能用一次；必须手动点"允许" | 只显示短码、手动输入 |
-| 16 | 用户本人只用 **passkey** 登录，用一次性初始化码注册和找回 | Face ID 一下即可，抗钓鱼，没有可以泄露的密码；不需要 Zero Trust 后台配置。门槛要高，是因为节点在局域网里，能替别人抓取任意 URL | 管理密码；Cloudflare Access |
+| 16 | 用户本人只用 **passkey** 登录。第一个 passkey 和找回都用家里媒体节点签发的 **6 位数字配对码**：在家里机器上运行 `npm run owner-code`，到 `/login` 输入。码只存在节点内存里，Cloudflare 不存；15 分钟过期，错 5 次作废，只能用一次，重新申请会替换旧码，节点重启就没了。已有 passkey 时用配对码注册就是**重置**：新 passkey 保存后，删掉其他所有 passkey，撤销所有登录会话。没有网页找回，只能在家里机器上本地重置。签发只走节点的本地 Unix socket，控制面碰不到 | passkey：Face ID 一下即可，抗钓鱼，没有可以泄露的密码；不需要 Zero Trust 后台配置。门槛要高，是因为节点在局域网里，能替别人抓取任意 URL。配对码：用户的判断是 6 位数字够用，就像微信输入法的配对码，因为唯一的暴露窗口是第一次注册前那一小段时间，找回又只能在家里机器上做。控制面的域名写在公开仓库里，谁都能来试码，所以过期、5 次上限和一次性这几条限制必须有 | 管理密码；Cloudflare Access；存在 Worker secret（`OWNER_INIT_CODE`）里的一次性长初始化码（2026-10-11 换掉：每次找回都要轮换 secret，而且码存在 Cloudflare） |
 | 17 | 控制面通过 **Workers VPC** 访问节点，调用统一收进 `nodeFetch()`；开工前先实验，透传真实 HLS 会话一小时（代码和步骤见 [experiments/workers-vpc-spike](../experiments/workers-vpc-spike/README.md)）。2026-10-08 压测通过：60 分钟、每条路径 450 个约 1.5MB 的请求，VPC 路径失败 0 次，慢尾吞吐 p5 16.9 Mbps，首字节时间 p95 125ms，与公网路径的 123ms 持平。压测只覆盖静态文件，用真实播放器看半小时的测试还没做 | 节点完全没有公网地址，也不需要轮换 token。Workers VPC 截至 2026-09 仍是 Beta，所以要留退路：实验不通过、或 Beta 出问题时，只改配置切换到 Tunnel 公网域名 + Access service token | 直接用 Tunnel 公网域名 + Access service token |
 | 18 | 控制面部署在 **`yolo.haitian.site`**（MCP 地址 `https://yolo.haitian.site/mcp`）；`useyolo.app` 只做宣传网站 | 用户选的。这是用户本人的私人实例，放在个人域名下，和现在的 `drivein.haitian.site` 一样；以后别人用 Yolo 也是各自部署到自己的域名。passkey 和 OAuth issuer 都绑定在这个地址上，换地址就要重新注册 passkey | `useyolo.app` 根域名（留给宣传网站）；`app.useyolo.app`、`api.useyolo.app` |
 

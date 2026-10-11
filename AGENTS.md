@@ -30,6 +30,7 @@ npm run start                  # build and serve production app on :9090
 SERVE_SOURCE=1 npm run dev:server
 npm run dev:control            # Yolo control plane via wrangler dev (needs service/control/.dev.vars)
 npm run dev:node               # Yolo media node on 127.0.0.1:9191 (needs NODE_SECRET)
+npm run owner-code             # 6-digit code from the running node for the first passkey or a reset
 ```
 
 Node.js 22.12 or newer is required. Playback also needs `yt-dlp`, `ffmpeg`, and Deno. Cloudflared is optional.
@@ -57,6 +58,7 @@ Node.js 22.12 or newer is required. Playback also needs `yt-dlp`, `ffmpeg`, and 
 - `service/control/src/node-client.js` is the only way the control plane reaches the node (`nodeFetch()`).
 - `service/control/migrations/` holds the D1 schema; every table has `user_id`.
 - `service/node/src/app.js` serves `/internal/v1/*`; `legacy.js` bridges playback to `server/`.
+- `service/node/src/owner-code.js` holds the owner pairing code in memory; `local.js` serves issuing it on a Unix socket the control plane cannot reach.
 
 ## Implementation constraints
 
@@ -71,7 +73,7 @@ Node.js 22.12 or newer is required. Playback also needs `yt-dlp`, `ffmpeg`, and 
 - Viewport quality changes must preserve playback position.
 - Text subtitles are rendered in the browser; Plex image subtitles use burn-in.
 - HTTP APIs, WebSocket control, and proxy routes have no built-in authentication. Do not describe a public tunnel as safe without an access layer.
-- Runtime state belongs in ignored paths: `.drive-in.sqlite`, `.play-history.json`, `.hls-cache/`, `.media-cache/`, `.segment-cache/`, `.logs/`, and `.diag-reports/`.
+- Runtime state belongs in ignored paths: `.drive-in.sqlite`, `.play-history.json`, `.yolo-node.sock`, `.hls-cache/`, `.media-cache/`, `.segment-cache/`, `.logs/`, and `.diag-reports/`.
 
 Configuration belongs in environment variables documented by `.env.example`. Do not commit local tokens, databases, logs, caches, diagnostic reports, or built `player/dist/` files.
 
