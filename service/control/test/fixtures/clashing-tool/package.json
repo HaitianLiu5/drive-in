@@ -1,0 +1,1 @@
+{ "name": "@fixture/clashing-tool", "private": true, "type": "module", "yolo": { "control": "./control.js" } }

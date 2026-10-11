@@ -4,9 +4,9 @@ import { createYoloMcpServer } from "./server.js";
 // Streamable HTTP endpoint at /mcp, served statelessly by the Agents SDK
 // (`createMcpHandler` with MCP SDK v2). Auth has already been checked by
 // OAuthProvider, which passes the grant's props and scopes in.
-export function handleMcpRequest(request, { services, scopes, allowedHostnames }) {
+export function handleMcpRequest(request, { services, scopes, allowedHostnames, tools = [] }) {
   const handler = createMcpHandler(
-    () => createYoloMcpServer(() => ({ services, scopes })),
+    () => createYoloMcpServer(() => ({ services, scopes }), { tools }),
     { route: "/mcp", ...(allowedHostnames ? { allowedHostnames } : {}) },
   );
   return handler.fetch(request);

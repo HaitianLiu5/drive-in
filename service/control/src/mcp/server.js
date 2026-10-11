@@ -34,9 +34,10 @@ function failure(error) {
 }
 
 // `getContext()` returns { services, scopes } for the current request.
-export function createYoloMcpServer(getContext) {
+// `tools` adds plugin tools (plugins.js) after Yolo's own.
+export function createYoloMcpServer(getContext, { tools = [] } = {}) {
   const server = new McpServer(SERVER_INFO, { instructions: INSTRUCTIONS });
-  for (const tool of TOOLS) {
+  for (const tool of [...TOOLS, ...tools]) {
     server.registerTool(tool.name, {
       title: tool.title,
       description: tool.description,

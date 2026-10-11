@@ -4,8 +4,11 @@ import { createV1App } from "./api/v1.js";
 import { AUTHORIZE_PATH, createAuthApp } from "./auth/app.js";
 import { hubClient } from "./hub/hub.js";
 import { handleMcpRequest } from "./mcp/handler.js";
+import { SCOPES } from "./mcp/tools.js";
 import { proxyMedia } from "./media.js";
 import { createNodeClient, isNodeRequest } from "./node-client.js";
+import pluginEntries from "./plugins.generated.js";
+import { loadControlPlugins } from "./plugins.js";
 import { handleRealtime, issueRealtimeTicket } from "./realtime.js";
 import { createServices } from "./services.js";
 
@@ -18,19 +21,25 @@ export { Hub } from "./hub/hub.js";
 //   /m/*            media passthrough to the node (signed path token)
 //   /oauth/*        OAuth 2.1 authorization server, plus owner sign-in pages
 
-export const SCOPES = ["read", "control", "manage"];
-
 function buildServices(env, userId) {
   return createServices({ db: env.DB, userId, hub: hubClient(env, userId), node: createNodeClient(env) });
 }
 
+// Control entries of the configured plugins, bundled at build time by
+// scripts/generate-plugins.js. Their factories run on the first MCP request,
+// never in the Worker's global scope.
+let controlPlugins = null;
+const plugins = () => (controlPlugins ??= loadControlPlugins(pluginEntries));
+
 const mcpApi = {
-  fetch(request, env, ctx) {
+  async fetch(request, env, ctx) {
     const origin = new URL(env.PUBLIC_ORIGIN || request.url);
+    const { tools } = await plugins();
     return handleMcpRequest(request, {
       services: buildServices(env, ctx.props.userId),
       scopes: ctx.auth?.scope ?? [],
       allowedHostnames: [origin.hostname],
+      tools,
     });
   },
 };

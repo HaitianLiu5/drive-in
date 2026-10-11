@@ -12,6 +12,10 @@
   "workers_dev": false,
   "routes": [{ "pattern": "yolo.haitian.site", "custom_domain": true }],
   "observability": { "enabled": true },
+  // Plugins' control entries are bundled at build time (decision 20): this
+  // writes src/plugins.generated.js from the plugin config before every
+  // `wrangler dev` and `wrangler deploy`.
+  "build": { "command": "node scripts/generate-plugins.js" },
   "vars": {
     // Public origin of this Worker. It is the OAuth issuer, the token audience,
     // and the passkey relying party; changing it invalidates every passkey.

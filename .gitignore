@@ -29,3 +29,8 @@ coverage/
 # Wrangler local state and secrets
 .wrangler/
 .dev.vars
+
+# Yolo plugin config (yolo.config.example.json is committed) and the
+# control plane's generated plugin imports
+yolo.config.json
+service/control/src/plugins.generated.js
