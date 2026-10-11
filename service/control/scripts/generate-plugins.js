@@ -5,12 +5,14 @@
 // runs this as the build command, so `wrangler dev` and `wrangler deploy`
 // always pick up the current yolo.config.json.
 //
-// The config is found like the node finds it: YOLO_CONFIG, else
-// yolo.config.json in the repository, else plugins/official.json. Plugin
+// The config is found like the node finds it: YOLO_CONFIG (also from the
+// repository .env), else yolo.config.json in the repository, else
+// plugins/official.json. Plugin
 // options are copied into the bundle, so keep secrets out of a control
 // entry's options; use Worker secrets instead.
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, relative, sep } from "node:path";
+import { loadEnvFile } from "node:process";
 import { fileURLToPath } from "node:url";
 import { loadPluginConfig } from "@useyolo/plugin-api/host";
 
@@ -68,6 +70,11 @@ export function generatePluginModule({ root = ROOT, env = process.env, outFile =
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  try {
+    loadEnvFile(process.env.DRIVEIN_ENV_FILE ?? `${ROOT}.env`);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
   try {
     const { configPath, plugins } = generatePluginModule();
     console.log(`Control plugins from ${shown(ROOT, configPath)}: ${plugins.length ? plugins.join(", ") : "none"}`);

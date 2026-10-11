@@ -15,7 +15,7 @@ v1 要做的：
 
 - 控制面 + 媒体节点 + Drive-In 客户端 + MCP。
 - 单用户。但所有数据表都带 `user_id`。
-- 来源类型：URL（yt-dlp）和 Plex。
+- 来源由媒体节点上的片源插件提供（[yolo-plugins.md](yolo-plugins.md)）。官方插件是 Plex 和网页 URL（yt-dlp）。
 
 v1 不做，但协议要给它们留位置：
 
@@ -33,8 +33,8 @@ v1 不做，但协议要给它们留位置：
 | user | 一个账号。v1 只有一个 |
 | device | 一个终端，例如特斯拉浏览器、手机、电脑浏览器。设备会声明自己的能力 |
 | active device | 当前负责播放的设备。一个用户同一时间只有一台 |
-| node | 家里的媒体节点，负责解析、转码、代理、Plex、缓存 |
-| source | 内容来源，例如 `{kind:"url"}`、`{kind:"plex"}`，以后还有 `{kind:"spotify"}` |
+| node | 家里的媒体节点，负责片源插件、解析、转码、代理、缓存 |
+| source | 内容来源，由片源插件定义，例如 `{plugin:"plex", id:"12345"}`。还没被插件认领的网址是 `{url}` |
 | session | 一次播放会话。由节点创建，用 `sessionId` 标识，绑定一组签名的媒体 URL |
 | queue | 用户级的播放队列。采用 Spotify 式：一个用户只有一条 |
 
@@ -109,9 +109,12 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 ## 4. 资源结构
 
 ```js
-// Source：内容从哪来。可扩展
-{ kind: "url", url: "https://www.youtube.com/watch?v=…" }
-{ kind: "plex", ratingKey: "12345" }
+// Source：内容从哪来，归片源插件所有（yolo-plugins.md）。plugin 是片源 id，
+// id 由插件决定，其他字段也归插件，控制面原样保存
+{ plugin: "plex", id: "12345" }
+{ plugin: "ytdlp", id: "https://youtube.com/watch?v=…", url: "https://youtu.be/…?si=…" }
+// 还没被插件认领的网址：节点离线时加进队列或播放列表的网址，播放时再认领
+{ url: "https://…" }
 
 // Device
 {
@@ -138,10 +141,12 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
   name: "English", auto: false, format: "text" | "image", default: false }
 ```
 
-`sourceKey` 是来源的规范化键，用于历史和音轨偏好：
+`sourceKey` 是来源的稳定键，用于历史、续播进度和音轨偏好，格式统一是 `<plugin>:<id>`，片库条目的 id 也是它。插件对同一个内容必须每次给出同一个 `id`：
 
-- URL 来源：`url:<规范化后的 URL>`
-- Plex 来源：`plex:<ratingKey>`
+- Plex：`plex:<ratingKey>`
+- yt-dlp：`ytdlp:<规范化后的 URL>`。同一个视频的不同网址写法共用一个键。0.1 的键是 `url:<规范化后的 URL>`，由 D1 迁移 `0003` 改过来
+
+网址先交给节点认领：节点按插件加载顺序依次问片源插件，第一个认领的插件决定 Source（第 8 节 `claim`）。
 
 ## 5. HTTP API（控制面，`/v1`）
 
@@ -180,7 +185,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | POST | `/v1/playlists/import` | manage | `{ url, name?, enqueue? }`，从外部播放列表导入 |
 | GET | `/v1/history` | read | 历史和播放进度 |
 | DELETE | `/v1/history` | manage | `{ sourceKey? }`，省略时清空全部 |
-| GET | `/v1/library` | read | 媒体库列表。目前只有 Plex，以后加其他来源 |
+| GET | `/v1/library` | read | 媒体库列表，来自节点上实现了片库的片源插件，id 为 `<片源>:<id>` |
 | GET | `/v1/library/:libraryId/items` | read | 浏览，支持分页 |
 | GET | `/v1/library/items/:id/children` | read | 剧集等子项 |
 | GET | `/v1/library/search?q=` | read | 搜索 |
@@ -282,22 +287,25 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/internal/v1/health` | 版本号、yt-dlp/ffmpeg/Plex 是否可用、缓存占用 |
+| GET | `/internal/v1/health` | 版本号、运行时长、`legacy`（Drive-In 播放器）、`sources`（每个片源的状态）、`plugins`（每个插件的加载状态和错误） |
+| POST | `/internal/v1/claim` | `{ url }`，返回 `{ source }`：按顺序问片源插件，第一个认领的胜出；没人认领时返回 `not_found`。控制面每次播放网址前都先调用 |
 | POST | `/internal/v1/prepare` | 参数为 `{ sessionId, source, capabilities, viewport, startTime, reason, tracks }`，返回流描述。**同一个 `sessionId` 重复调用会重建会话**，节点重启后的恢复和 Plex 跳转都靠这一点 |
 | POST | `/internal/v1/sessions/:id/stop` | 停止会话，作废 token，回收 ffmpeg 和 Plex 转码 |
 | POST | `/internal/v1/sessions/:id/tracks` | 更换音轨。Plex 的图片字幕需要重建会话 |
 | POST | `/internal/v1/sessions/:id/progress` | 控制面转发播放进度。节点负责回写 Plex 进度，以及检测 Plex 会话是否失效 |
 | POST | `/internal/v1/sessions/:id/control` | `{ action: pause \| resume \| stop \| seek, position? }`。只用于节点渲染器（见下文），实时设备的控制命令由 Hub 直接发 |
-| GET | `/internal/v1/tracks?source=` | 列出某个来源可选的音轨 |
-| POST | `/internal/v1/metadata` | `{ source }`，返回标题、缩略图、时长、是否直播。`search` 解析 URL、加入队列时补全标题都用它 |
+| GET | `/internal/v1/tracks?source=` | 列出某个来源可选的音轨，`source` 是 Source 的 JSON |
+| POST | `/internal/v1/metadata` | `{ source }` 或 `{ url }`（先认领），返回 `{ source, title, thumbnail, duration, isLive }`。`search` 解析 URL、加入队列时补全标题都用它 |
 | GET | `/internal/v1/renderers` | 节点自己驱动的播放器（节点渲染器）列表，包括在线状态和当前进度 |
-| GET | `/internal/v1/library/…` | 和第 5 节的库接口一一对应 |
-| POST | `/internal/v1/playlists/expand` | 展开外部播放列表的 URL，返回 `Source` 列表 |
+| GET | `/internal/v1/library/…` | 和第 5 节的库接口一一对应。片库和条目的 id 是 `<片源>:<id>`，节点按前缀找到片源插件；搜索和片库列表合并所有片源的结果，失败的片源列在 `unavailable` 里 |
+| POST | `/internal/v1/playlists/expand` | `{ url }`，按顺序交给片源插件展开，返回 `{ title, url, items: [{ source, title, thumbnail, duration }] }` |
 | POST | `/internal/v1/owner-code/verify` | `{ code }`，检查用户本人的配对码（第 3 节），不消耗。错了也算一次尝试 |
 | POST | `/internal/v1/owner-code/consume` | `{ code }`，检查并用掉配对码。控制面在 passkey 校验通过之后、保存之前调用 |
 | GET | `/m/{token}/…` | 媒体流，用现有的代理、DASH 转 HLS、Plex HLS、字幕实现 |
 
-节点离线时：`prepare` 返回 `node_offline`。页面、MCP、队列管理照常可用，播放器显示"媒体节点离线"。
+节点离线时：`prepare` 返回 `node_offline`。页面、MCP、队列管理照常可用，播放器显示"媒体节点离线"。节点离线时加进队列的网址保持未认领的 `{ url }`，播放时再认领。
+
+**0.2 的变化**：路径还是 `/internal/v1`，但 Source 的格式变了（第 4 节），所以控制面和节点必须一起升级：旧控制面发给新节点的 `{kind}` 会被拒绝，新控制面发给旧节点的 `{plugin}` 也一样。具体是：新增 `POST /claim`；`/metadata` 接受 `{ url }`，返回里多了 `source`；`/health` 用 `sources` 和 `plugins` 代替原来固定的 `library` 和 `ytdlp` 字段；`/playlists/expand` 返回插件的 Source；`/prepare`、`/tracks`、`/sessions/:id/tracks` 只接受插件的 Source，插件没加载时返回 `not_found`。
 
 **节点渲染器**：节点可以自己驱动一个播放器，控制面把它当成设备，id 为 `node:<id>`，命令经 `/internal/v1/sessions/:id/control` 转给节点。v1 用它接上现有的 Drive-In 服务（`node:legacy`）：在媒体管线搬进节点之前，agent 通过它控制车上现在的播放器。
 
@@ -345,7 +353,8 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 - 注解按上表设置：只读工具标 readOnly，删除类标 destructive。其余写操作显式标 `destructiveHint: false`，因为 MCP 默认把非只读工具当成 destructive。`queue_list` 是读操作，也标 readOnly。
 - 每个工具只要求一个 scope：只读工具要 `read`；`play`、`control`、`seek`、`transfer`、`set_tracks` 要 `control`；改队列和播放列表的工具要 `manage`。
-- `item_id` 是库条目 id，格式为 `plex:<ratingKey>`。`list_tracks` 的 `item_id` 也可以是 URL。
+- `item_id` 是库条目 id，格式为 `<片源>:<id>`，例如 `plex:<ratingKey>`。`list_tracks` 的 `item_id` 也可以是 URL。
+- 工具描述不提具体的片源或网站，能播哪些网站、有哪些片库取决于节点上的片源插件。控制面插件可以加工具（[yolo-plugins.md](yolo-plugins.md) 第 4 节），用同一套 scope。
 - `play` 不带 `start_at` 时，从历史记录里的进度接着播。
 - 出错时工具返回 `isError: true`，内容是第 5 节的错误 JSON。
 
@@ -359,7 +368,7 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 
 见 [yolo-decisions.md](yolo-decisions.md#待定)，以那里的列表为准。
 
-## 12. 实现状态（2026-10-09）
+## 12. 实现状态（2026-10-11）
 
 | 部分 | 状态 | 位置 |
 |---|---|---|
@@ -368,10 +377,12 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 | 用户本人 passkey 登录 + 节点签发的 6 位配对码（首次注册和重置） | 已实现。服务端流程和 `npm run owner-code` 在本地验证过，还没用真实浏览器和 passkey 测过 | `service/control/src/auth/`、`service/node/src/owner-code.js`、`local.js` |
 | `/v1` HTTP API（第 5 节） | 已实现 | `service/control/src/api/v1.js` |
 | Hub DO、`/v1/realtime`（票据、`hello`/`welcome`、`report`、`ended`、自动回复心跳、连接和消息限额） | 已实现，还没有客户端使用；心跳和限额 2026-10-11 在本地 Worker 上验证过 | `service/control/src/hub/` |
-| D1 表（第 9 节） | 已实现 | `service/control/migrations/` |
+| D1 表（第 9 节） | 已实现。`0003` 把 0.1 的数据改成插件的 Source | `service/control/migrations/` |
 | `nodeFetch()`：Workers VPC，可切换到 Tunnel + Access；拒绝调用 Worker 自己，Worker 拒绝带节点签名的请求（508） | 已实现 | `service/control/src/node-client.js` |
-| 节点：健康检查、库、元数据、音轨、播放列表展开 | 已实现 | `service/node/` |
-| 节点：`prepare` 和会话 | 只支持节点渲染器 `node:legacy`，播放仍由 `server/` 完成 | `service/node/src/legacy.js` |
+| 插件框架（0.2）：`@useyolo/plugin-api`、节点加载器和片源注册表、控制面构建时打包插件、`yolo.config.json` | 已实现，接口为实验性 | `service/plugin-api/`、`service/node/src/plugins.js`、`sources.js`、`service/control/src/plugins.js`、`scripts/generate-plugins.js` |
+| 官方片源插件：Plex、yt-dlp | 已实现 | `plugins/source-plex/`、`plugins/source-ytdlp/` |
+| 节点：健康检查、库、元数据、音轨、播放列表展开、网址认领 | 已实现，全部经过片源插件 | `service/node/src/app.js` |
+| 节点：`prepare` 和会话 | 只支持节点渲染器 `node:legacy`，播放仍由 `server/` 完成，只能播放两个官方插件的 Source | `service/node/src/legacy.js` |
 | 节点：`/m/*` 媒体流、给实时设备的 `prepare` | 没实现，要把 `server/` 的媒体管线搬过来 | |
 | 媒体 URL 签名 | 控制面已签发，节点还没有校验的地方 | `service/core/src/signing.js` |
 | 设备码登录（RFC 8628）、扫码配对 | 没实现。`workers-oauth-provider` 不支持设备码授权，需要自己做 | |
@@ -390,10 +401,10 @@ Agent 默认申请全部 scope，授权页上可以去掉其中几项。
 在 `service/control` 下：
 
 1. `npx wrangler secret put NODE_SECRET`，值和家里 `.env` 里的 `NODE_SECRET` 相同。用户本人登录不需要别的 secret。
-2. `npx wrangler d1 migrations apply yolo --remote`。
+2. `npx wrangler d1 migrations apply yolo --remote`。从 0.1 升级时，这一步会执行 `0003`，紧接着做第 3 步，并重启节点（第 8 节「0.2 的变化」）。
 3. `npx wrangler deploy`。
 
 在家里机器的仓库根目录下：
 
-4. `npm run dev:node` 启动节点。cloudflared 要在运行，Workers VPC 服务指向 `127.0.0.1:9191`（见 `wrangler.jsonc`）。
+4. `npm install`（新增了工作区时必须做，否则节点找不到 `@useyolo/plugin-api`），然后 `npm run dev:node` 启动节点。cloudflared 要在运行，Workers VPC 服务指向 `127.0.0.1:9191`（见 `wrangler.jsonc`）。没有 `yolo.config.json` 时节点加载官方插件，见 [yolo-plugins.md](yolo-plugins.md) 第 5 节。
 5. `npm run owner-code`，然后在 15 分钟内打开 `https://yolo.haitian.site/login`，输入打印出来的 6 位码，创建 passkey。passkey 全丢时，重复这一步就是重置。

@@ -1,0 +1,6 @@
+{
+  "plugins": [
+    { "source": "./plugins/source-plex", "options": { "url": "http://localhost:32400" } },
+    { "source": "./plugins/source-ytdlp", "enabled": true, "options": { "binary": "yt-dlp" } }
+  ]
+}
