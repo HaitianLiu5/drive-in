@@ -1,7 +1,7 @@
 // --- VTT subtitle renderer -------------------------------------------
 
 import { buildCueEndPrefix, parseVTT } from "./subtitle-cues.js";
-import { activeSubtitleGroups, subtitleLineLanguage, subtitlePictureBounds } from "./subtitle-layout.js";
+import { activeSubtitleGroups, fitSubtitleRow, subtitleRowPage, subtitlePictureBounds, subtitleTrackLanguages, subtitleLanguageSlots } from "./subtitle-layout.js";
 import { requestText } from "./network.js";
 
 export { parseVTT } from "./subtitle-cues.js";
@@ -10,6 +10,10 @@ const subtitleOverlay = document.getElementById("subtitle-overlay");
 const playerContainer = document.getElementById("player-container");
 let subtitleTracks = []; // [{ lang, cues }]
 let lastRenderedSubtitle = "";
+let lastSubtitleTime = 0;
+let subtitleRows = [];
+let layoutKey = "";
+const textMeasure = document.createElement("canvas").getContext("2d");
 const pendingTracks = new Map();
 
 function updateSubtitlePictureBounds() {
@@ -17,16 +21,33 @@ function updateSubtitlePictureBounds() {
   const bounds = subtitlePictureBounds(playerContainer.clientWidth, playerContainer.clientHeight,
     canvas?.width || 0, canvas?.height || 0);
   subtitleOverlay.style.setProperty("--subtitle-picture-width", `${bounds.width}px`);
-  subtitleOverlay.style.setProperty("--subtitle-picture-inset", `${bounds.bottom + Math.max(10, Math.min(24, bounds.height * 0.035))}px`);
+  const containerBox = playerContainer.getBoundingClientRect();
+  const controlsTop = Math.min(...["progress-wrap", "controls-row"].map((id) => document.getElementById(id).getBoundingClientRect().top));
+  subtitleOverlay.style.setProperty("--subtitle-controls-inset", `${Math.max(8, containerBox.bottom - controlsTop + 8)}px`);
+  const nextKey = `${bounds.width}:${bounds.height}:${getComputedStyle(subtitleOverlay).fontSize}`;
+  if (nextKey !== layoutKey) {
+    layoutKey = nextKey;
+    lastRenderedSubtitle = "";
+    renderSubtitle(lastSubtitleTime);
+  }
 }
 
 // Geometry follows the actual contained image, including resize while paused.
 // Observers avoid layout reads in the per-frame subtitle rendering path.
 new ResizeObserver(updateSubtitlePictureBounds).observe(playerContainer);
+new ResizeObserver(updateSubtitlePictureBounds).observe(document.getElementById("controls-bottom"));
 new MutationObserver(updateSubtitlePictureBounds).observe(playerContainer, {
   childList: true, subtree: true, attributes: true, attributeFilter: ["width", "height"],
 });
 updateSubtitlePictureBounds();
+document.fonts.ready.then(() => {
+  lastRenderedSubtitle = "";
+  renderSubtitle(lastSubtitleTime);
+});
+document.fonts.addEventListener("loadingdone", () => {
+  lastRenderedSubtitle = "";
+  renderSubtitle(lastSubtitleTime);
+});
 
 function cancelPendingTrack(lang) {
   pendingTracks.get(lang)?.abort();
@@ -34,46 +55,65 @@ function cancelPendingTrack(lang) {
 }
 
 function clearSubtitleOverlay() {
+  subtitleRows = [];
   if (!lastRenderedSubtitle && !subtitleOverlay.hasChildNodes()) return;
   subtitleOverlay.replaceChildren();
   lastRenderedSubtitle = "";
 }
 
-function renderSubtitleGroups(groups) {
+function renderSubtitleGroups(groups, time) {
   const nextRenderedSubtitle = JSON.stringify(groups);
-  if (nextRenderedSubtitle === lastRenderedSubtitle) return;
-
-  lastRenderedSubtitle = nextRenderedSubtitle;
-  if (!groups.length) {
-    subtitleOverlay.replaceChildren();
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  for (const group of groups) {
-    const track = document.createElement("div");
-    track.className = "subtitle-track";
-    track.lang = subtitleLineLanguage(group.lines.join(" "), group.lang);
-    track.dataset.lang = group.lang;
-    for (const line of group.lines) {
+  if (nextRenderedSubtitle !== lastRenderedSubtitle) {
+    lastRenderedSubtitle = nextRenderedSubtitle;
+    if (!groups.length) {
+      clearSubtitleOverlay();
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    subtitleRows = [];
+    for (const group of groups) {
+      const track = document.createElement("div");
+      track.className = "subtitle-track";
+      track.lang = group.lang;
+      track.dataset.lang = group.lang;
       const lineElement = document.createElement("span");
       lineElement.className = "subtitle-line";
-      lineElement.lang = subtitleLineLanguage(line, group.lang);
-      lineElement.textContent = line;
+      lineElement.lang = group.lang;
+      lineElement.textContent = group.lines[0];
       track.append(lineElement);
+      fragment.append(track);
+      subtitleRows.push({ ...group, element: lineElement });
     }
-    fragment.append(track);
+    subtitleOverlay.replaceChildren(fragment);
+    const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const baseSize = parseFloat(getComputedStyle(subtitleOverlay).fontSize);
+    // A fitted font or an empty cue must not change either language's row box.
+    subtitleOverlay.style.setProperty("--subtitle-row-height", `${baseSize * 1.25}px`);
+    for (const row of subtitleRows) {
+      const style = getComputedStyle(row.element);
+      const fit = fitSubtitleRow(row.lines[0], Math.max(1, row.element.clientWidth - 2), baseSize, rootSize, (text, size) => {
+        textMeasure.font = `${style.fontWeight} ${size}px ${style.fontFamily}`;
+        return textMeasure.measureText(text).width;
+      });
+      row.pages = fit.pages;
+      row.element.style.fontSize = `${fit.fontSize / rootSize}rem`;
+    }
   }
-  subtitleOverlay.replaceChildren(fragment);
+  for (const row of subtitleRows) {
+    const text = subtitleRowPage(row.pages, time, row.start, row.end);
+    if (row.element.textContent !== text) row.element.textContent = text;
+  }
 }
 
 export function renderSubtitle(time) {
+  lastSubtitleTime = time;
   if (!subtitleTracks.length) {
     clearSubtitleOverlay();
     return;
   }
 
-  renderSubtitleGroups(activeSubtitleGroups(subtitleTracks, time));
+  renderSubtitleGroups(subtitleLanguageSlots(activeSubtitleGroups(subtitleTracks, time),
+    subtitleTracks.flatMap((track) => track.languages)), time);
 }
 
 export async function loadSubtitleTrack(lang, url) {
@@ -94,7 +134,8 @@ export async function loadSubtitleTrack(lang, url) {
     const cues = parseVTT(resp.text);
     subtitleTracks = subtitleTracks.filter((t) => t.lang !== lang);
     // Prefix maxima let lookup stop as soon as no earlier overlapping cue can still be active.
-    subtitleTracks.push({ lang, url: absUrl, cues, cueEndPrefix: buildCueEndPrefix(cues) });
+    subtitleTracks.push({ lang, url: absUrl, cues, languages: subtitleTrackLanguages({ lang, cues }),
+      cueEndPrefix: buildCueEndPrefix(cues) });
     clearSubtitleOverlay();
     console.log(`[subs] Loaded ${cues.length} cues for ${lang}`);
     return true;

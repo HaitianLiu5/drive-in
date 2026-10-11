@@ -1,5 +1,6 @@
 export function parseVTT(text) {
   const cues = [];
+  const seen = new Set();
   const blocks = String(text).replace(/\r\n?/g, "\n").split(/\n{2,}/);
   for (const block of blocks) {
     const match = block.match(/(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(?:(\d+):)?(\d{2}):(\d{2})[.,](\d{3})/);
@@ -9,7 +10,14 @@ export function parseVTT(text) {
     const lines = block.split("\n");
     const tsIdx = lines.findIndex((line) => line.includes("-->"));
     const content = lines.slice(tsIdx + 1).join("\n").replace(/<[^>]+>/g, "").trim();
-    if (content) cues.push({ start, end, text: content });
+    if (!content) continue;
+    // YouTube can repeat a caption as separate styled cues. Our text renderer
+    // ignores that styling, so identical text at identical times is one cue.
+    // Keep different timings and genuine overlapping dialogue unchanged.
+    const key = JSON.stringify([start, end, content]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cues.push({ start, end, text: content });
   }
   return cues.sort((left, right) => left.start - right.start || left.end - right.end);
 }

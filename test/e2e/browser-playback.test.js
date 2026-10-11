@@ -139,7 +139,75 @@ test("the browser decodes media, paints the Canvas, and advances presentation ti
   assert.deepEqual(pageErrors, []);
 });
 
-test("subtitle languages stack upward as compact background groups", async (t) => {
+test("bilingual subtitle positions stay fixed across missing cues and fitted fonts", async (t) => {
+  const { baseUrl } = await startDriveInServer(t);
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
+    || (existsSync(macChrome) ? macChrome : undefined);
+  const browser = await chromium.launch({ headless: true, executablePath });
+  t.after(() => browser.close());
+  const page = await createDriveInPage(browser, { width: 773, height: 601 });
+  const english = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nEnglish first\n\n00:00:03.000 --> 00:00:05.000\nThis longer English sentence needs a smaller fitted font, but its row must stay in exactly the same place.\n";
+  const chinese = "WEBVTT\n\n00:00:02.000 --> 00:00:04.000\n中文第二行\n\n00:00:05.000 --> 00:00:06.000\n只有中文字幕\n";
+  await page.route("**/test/slots-*.vtt", (route) => route.fulfill({
+    status: 200, contentType: "text/vtt",
+    body: route.request().url().includes("mixed") ? `${english}\n${chinese.replace("WEBVTT", "")}`
+      : route.request().url().includes("zh") ? chinese : english,
+  }));
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    const subs = await import("/src/subtitles.js");
+    // Reverse load order must not affect visual language slots.
+    await subs.loadSubtitleTrack("zh-Hans", "/test/slots-zh.vtt");
+    await subs.loadSubtitleTrack("en", "/test/slots-en.vtt");
+  });
+  const snapshot = (time) => page.evaluate(async (value) => {
+    const subs = await import("/src/subtitles.js");
+    subs.renderSubtitle(value);
+    const overlay = document.getElementById("subtitle-overlay");
+    const box = overlay.getBoundingClientRect();
+    return {
+      top: box.top, height: box.height, display: getComputedStyle(overlay).display,
+      rows: [...overlay.children].map((row) => {
+        const line = row.firstElementChild;
+        const rowBox = row.getBoundingClientRect();
+        return { lang: row.lang, text: line.textContent, top: rowBox.top, height: rowBox.height,
+          lineTop: line.getBoundingClientRect().top,
+          lineHeight: parseFloat(getComputedStyle(line).lineHeight),
+          fontSize: parseFloat(getComputedStyle(line).fontSize) };
+      }),
+    };
+  }, time);
+  const states = [];
+  for (const time of [1.5, 2.5, 3.5, 4.5, 5.5, 2.5]) states.push(await snapshot(time));
+  assert.deepEqual(states.map((state) => state.rows.map((row) => Boolean(row.text))), [
+    [true, false], [true, true], [true, true], [true, false], [false, true], [true, true],
+  ]);
+  const positions = (state) => ({ top: state.top, height: state.height,
+    rows: state.rows.map(({ lang, top, height, lineTop, lineHeight }) => ({ lang, top, height, lineTop, lineHeight })) });
+  for (const state of states) assert.deepEqual(positions(state), positions(states[0]));
+  assert.ok(states[2].rows[0].fontSize < states[0].rows[0].fontSize);
+  assert.equal((await snapshot(7)).display, "none");
+  // The same guarantee applies to a single mixed-language Plex file.
+  await page.evaluate(async () => {
+    const subs = await import("/src/subtitles.js");
+    subs.disableExternalSubtitle();
+    await subs.loadSubtitleTrack("plex:80891", "/test/slots-mixed.vtt");
+  });
+  for (const time of [1.5, 5.5]) assert.deepEqual(positions(await snapshot(time)), positions(states[0]));
+  await page.evaluate(async () => {
+    const subs = await import("/src/subtitles.js");
+    subs.disableExternalSubtitle();
+    await subs.loadSubtitleTrack("en", "/test/slots-en.vtt");
+    await subs.loadSubtitleTrack("zh-Hans", "/test/slots-zh.vtt");
+    subs.removeSubtitleTrack("zh-Hans");
+  });
+  assert.deepEqual((await snapshot(2.5)).rows.map((row) => row.lang), ["en"]);
+  await page.evaluate(async () => (await import("/src/subtitles.js")).disableExternalSubtitle());
+  assert.equal((await snapshot(2.5)).display, "none");
+});
+
+test("bilingual subtitles share one full-width backing with one row per language", async (t) => {
   const { baseUrl } = await startDriveInServer(t);
   const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE
     || (existsSync(macChrome) ? macChrome : undefined);
@@ -152,7 +220,8 @@ test("subtitle languages stack upward as compact background groups", async (t) =
     const realFetch = globalThis.fetch.bind(globalThis);
     const captions = new Map([
       ["/test/en.vtt", "WEBVTT\n\n00:00:00.000 --> 00:00:04.000\nFirst line\nSecond line\n"],
-      ["/test/zh.vtt", "WEBVTT\n\n00:00:00.000 --> 00:00:04.000\n中文翻译\n"],
+      // YouTube may supply the same text twice with different styling.
+      ["/test/zh.vtt", "WEBVTT\n\n00:00:00.000 --> 00:00:04.000\n<b>中文翻译</b>\n\n00:00:00.000 --> 00:00:04.000\n中文翻译\n"],
     ]);
     globalThis.fetch = (input, init) => {
       const requestUrl = typeof input === "string"
@@ -182,7 +251,6 @@ test("subtitle languages stack upward as compact background groups", async (t) =
     const englishBox = tracks[0].getBoundingClientRect();
     const chineseBox = tracks[1].getBoundingClientRect();
     const firstLineBox = englishLines[0].getBoundingClientRect();
-    const secondLineBox = englishLines[1].getBoundingClientRect();
     const overlayStyle = getComputedStyle(overlay);
     const trackStyle = getComputedStyle(tracks[0]);
     const chineseTrackStyle = getComputedStyle(tracks[1]);
@@ -209,10 +277,12 @@ test("subtitle languages stack upward as compact background groups", async (t) =
         display: overlayStyle.display,
         direction: overlayStyle.flexDirection,
         gap: overlayStyle.gap,
+        background: overlayStyle.backgroundColor,
         bottomInset: appBox.bottom - overlayBox.bottom,
       },
       firstLanguageIsLower: englishBox.bottom > chineseBox.bottom,
-      sameLanguageLineGap: secondLineBox.top - firstLineBox.bottom,
+      rowWidths: tracks.map((track) => track.getBoundingClientRect().width),
+      oneEnglishRow: Math.abs(firstLineBox.height - parseFloat(getComputedStyle(englishLines[0]).lineHeight)) < 1,
       trackBackground: trackStyle.backgroundColor,
       lineBackground: lineStyle.backgroundColor,
       englishFontFamily: trackStyle.fontFamily,
@@ -223,17 +293,19 @@ test("subtitle languages stack upward as compact background groups", async (t) =
   });
 
   assert.deepEqual(layout.groups, [
-    { lang: "en", lines: ["First line", "Second line"] },
+    { lang: "en", lines: ["First line Second line"] },
     { lang: "zh-Hans", lines: ["中文翻译"] },
   ]);
   assert.equal(layout.groupCount, 2);
   assert.equal(layout.overlay.display, "flex");
-  assert.equal(layout.overlay.direction, "column-reverse");
-  assert.equal(layout.overlay.gap, "4px");
-  assert.ok(layout.overlay.bottomInset >= 24 && layout.overlay.bottomInset <= 96);
-  assert.equal(layout.firstLanguageIsLower, true);
-  assert.ok(Math.abs(layout.sameLanguageLineGap) < 0.5);
-  assert.equal(layout.trackBackground, "rgba(0, 0, 0, 0.65)");
+  assert.equal(layout.overlay.direction, "column");
+  assert.equal(layout.overlay.gap, "2px");
+  assert.equal(layout.overlay.bottomInset, 8);
+  assert.equal(layout.firstLanguageIsLower, false);
+  assert.equal(layout.rowWidths[0], layout.rowWidths[1]);
+  assert.equal(layout.oneEnglishRow, true);
+  assert.equal(layout.overlay.background, "rgba(0, 0, 0, 0.65)");
+  assert.equal(layout.trackBackground, "rgba(0, 0, 0, 0)");
   assert.equal(layout.lineBackground, "rgba(0, 0, 0, 0)");
   assert.match(layout.englishFontFamily, /^"Noto Sans"/);
   assert.match(layout.chineseFontFamily, /^"Noto Sans SC"/);
@@ -241,7 +313,7 @@ test("subtitle languages stack upward as compact background groups", async (t) =
   assert.match(layout.koreanFontFamily, /^"Noto Sans KR"/);
 });
 
-test("Plex bilingual captions use local Chinese glyphs and stay inside the movie at Tesla window sizes", async (t) => {
+test("Plex bilingual captions stay legible on two equal-width rows at Tesla window sizes", async (t) => {
   const { baseUrl } = await startDriveInServer(t);
   const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || (existsSync(macChrome) ? macChrome : undefined) });
   t.after(() => browser.close());
@@ -279,11 +351,12 @@ test("Plex bilingual captions use local Chinese glyphs and stay inside the movie
     const result = await page.evaluate(() => {
       const overlay = document.getElementById("subtitle-overlay");
       const box = overlay.getBoundingClientRect();
-      const pictureBottom = (innerHeight + innerWidth * 536 / 1280) / 2;
       const lines = [...overlay.querySelectorAll(".subtitle-line")];
-      return { gap: pictureBottom - box.bottom, fontSize: parseFloat(getComputedStyle(lines[1]).fontSize),
+      return { gap: innerHeight - box.bottom, fontSize: parseFloat(getComputedStyle(lines[1]).fontSize),
         languages: lines.map((line) => line.lang), font: getComputedStyle(lines[1]).fontFamily,
         width: box.width, height: box.height, overflow: lines.some((line) => line.scrollWidth > line.clientWidth),
+        rowWidths: lines.map((line) => line.getBoundingClientRect().width),
+        oneRowEach: lines.every((line) => Math.abs(line.getBoundingClientRect().height - parseFloat(getComputedStyle(line).lineHeight)) < 1),
         localChineseFont: performance.getEntriesByType("resource").some((entry) => entry.name.includes("/lib/fonts/noto-sans-sc/files/") && entry.responseEnd > 0),
       };
     });
@@ -292,9 +365,18 @@ test("Plex bilingual captions use local Chinese glyphs and stay inside the movie
     assert.ok(result.localChineseFont);
     assert.ok(result.fontSize >= 16 && result.fontSize <= 24);
     if (viewport.width === 773) assert.ok(result.fontSize < 19);
-    assert.ok(result.gap >= 9 && result.gap <= 25, JSON.stringify(result));
+    assert.equal(result.gap, 8, JSON.stringify(result));
+    assert.equal(result.rowWidths[0], result.rowWidths[1]);
+    assert.equal(result.oneRowEach, true);
     assert.equal(result.overflow, false);
     assert.ok(result.height < viewport.height / 2);
+    await page.evaluate(() => document.getElementById("app").classList.add("controls-visible"));
+    const clearance = await page.evaluate(() => ({
+      subtitleBottom: document.getElementById("subtitle-overlay").getBoundingClientRect().bottom,
+      controlsTop: Math.min(...["progress-wrap", "controls-row"].map((id) => document.getElementById(id).getBoundingClientRect().top)),
+    }));
+    assert.ok(clearance.subtitleBottom <= clearance.controlsTop - 7, JSON.stringify(clearance));
+    await page.evaluate(() => document.getElementById("app").classList.remove("controls-visible"));
   }
 });
 

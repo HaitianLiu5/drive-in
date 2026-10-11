@@ -32,3 +32,47 @@ test("CRLF cues and timestamps without hours are parsed", () => {
     { start: 3, end: 4, text: "Second" },
   ]);
 });
+
+test("duplicate styled YouTube cues display once after markup is removed", () => {
+  const cues = parseVTT(`WEBVTT
+
+first
+00:00:00.000 --> 00:00:02.000 align:start
+<b>我刚刚把这家超市买了下来</b>
+
+duplicate
+00:00:00.000 --> 00:00:02.000 align:center
+<c.colorFFFFFF>我刚刚把这家超市买了下来</c>
+
+00:00:02.000 --> 00:00:04.000
+下一句
+
+00:00:00.000 --> 00:00:02.000
+我刚刚把这家超市买了下来
+`);
+  assert.deepEqual(cues, [
+    { start: 0, end: 2, text: "我刚刚把这家超市买了下来" },
+    { start: 2, end: 4, text: "下一句" },
+  ]);
+  assert.equal(findActiveCues({ cues, cueEndPrefix: buildCueEndPrefix(cues) }, 1).length, 1);
+});
+
+test("repeated dialogue at different times and distinct overlapping cues survive", () => {
+  const cues = parseVTT(`WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+你好
+
+00:00:00.000 --> 00:00:02.000
+Hello
+
+00:00:01.000 --> 00:00:03.000
+你好
+
+00:00:04.000 --> 00:00:06.000
+你好
+`);
+  assert.equal(cues.length, 4);
+  assert.deepEqual(findActiveCues({ cues, cueEndPrefix: buildCueEndPrefix(cues) }, 1.5)
+    .map((cue) => cue.text), ["你好", "Hello", "你好"]);
+});

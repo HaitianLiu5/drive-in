@@ -121,21 +121,24 @@ html, body {
 #subtitle-overlay {
   position: absolute;
   top: auto;
-  bottom: max(var(--subtitle-picture-inset, 1rem), env(safe-area-inset-bottom));
+  bottom: max(0.5rem, env(safe-area-inset-bottom));
   left: 50%;
-  width: calc(var(--subtitle-picture-width, 100vw) * 0.92);
+  width: calc(var(--subtitle-picture-width, 100vw) * 0.96);
   transform: translateX(-50%);
   z-index: 12;
   display: flex;
-  flex-direction: column-reverse;
-  align-items: center;
-  gap: 0.25rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.125rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  background: rgba(0, 0, 0, 0.65);
   pointer-events: none;
-  font-size: clamp(1rem, calc(var(--subtitle-picture-width, 100vw) * 0.023), 1.5rem);
+  font-size: clamp(1rem, calc(var(--subtitle-picture-width, 100vw) * 0.023), 1.25rem);
 }
 
 #app.controls-visible #subtitle-overlay {
-  bottom: max(var(--subtitle-picture-inset, 1rem), calc(6rem + env(safe-area-inset-bottom)));
+  bottom: max(var(--subtitle-controls-inset, 0.5rem), env(safe-area-inset-bottom));
 }
 
 #subtitle-overlay:empty {
@@ -144,22 +147,17 @@ html, body {
 
 .subtitle-track {
   display: block;
-  width: fit-content;
-  max-width: 100%;
-  padding: 0.15em 0.5em;
-  border-radius: 0.15em;
-  background: rgba(0, 0, 0, 0.65);
+  width: 100%;
+  min-width: 0;
+  height: var(--subtitle-row-height, 1.25em);
   color: #fff;
   font-family: "Noto Sans", "Noto Sans SC", sans-serif;
   font-size: inherit;
   font-weight: 400;
-  line-height: 1.3;
+  line-height: var(--subtitle-row-height, 1.25em);
   font-synthesis: none;
   text-align: center;
-  text-wrap: balance;
-  overflow-wrap: anywhere;
-  word-break: normal;
-  line-break: strict;
+  white-space: nowrap;
 }
 
 .subtitle-track:lang(zh), .subtitle-line:lang(zh) {
@@ -180,6 +178,7 @@ html, body {
 
 .subtitle-line {
   display: block;
+  line-height: inherit;
 }
 
 /* --- Center play/pause button ---------------------------------------- */

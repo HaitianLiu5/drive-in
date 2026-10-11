@@ -15,9 +15,29 @@ export function subtitleLineLanguage(text, language = "") {
 }
 
 export function subtitleDisplayLines(text) {
-  // Keep authored language boundaries, but do not turn every dialogue dash
-  // into a new row: a bilingual two-speaker cue would become four rows.
-  return text.split("\n").map((line) => line.trim()).filter(Boolean);
+  // Keep language boundaries for classification, not authored visual wraps.
+  return text.split("\n").map((line) => line.replace(/[\u200b\uFEFF]/gu, "").trim()).filter(Boolean);
+}
+
+const languagePriority = (lang) => lang === "en" ? 0 : lang.startsWith("zh") ? 1 : 2;
+
+// Inspect once when a track loads: one Plex file can contain both languages.
+export function subtitleTrackLanguages(track) {
+  const languages = new Set();
+  for (const cue of track.cues) {
+    for (const line of subtitleDisplayLines(cue.text)) {
+      languages.add(subtitleLineLanguage(line, track.lang));
+    }
+  }
+  return [...languages].sort((a, b) => languagePriority(a) - languagePriority(b));
+}
+
+export function subtitleLanguageSlots(groups, languages) {
+  if (!groups.length) return []; // Hide the backing during complete silence.
+  const active = new Map(groups.map((group) => [group.lang, group]));
+  return [...new Set([...languages, ...active.keys()])]
+    .sort((a, b) => languagePriority(a) - languagePriority(b))
+    .map((lang) => active.get(lang) || { lang, lines: [""], start: 0, end: 0 });
 }
 
 export function subtitlePictureBounds(width, height, videoWidth, videoHeight) {
@@ -31,14 +51,53 @@ export function subtitlePictureBounds(width, height, videoWidth, videoHeight) {
 }
 
 export function activeSubtitleGroups(tracks, time) {
-  const groups = [];
+  const groups = new Map();
   for (const track of tracks) {
-    const lines = [];
     const activeCues = findActiveCues(track, time);
     for (const cue of activeCues) {
-      lines.push(...subtitleDisplayLines(cue.text));
+      for (const line of subtitleDisplayLines(cue.text)) {
+        const lang = subtitleLineLanguage(line, track.lang);
+        let group = groups.get(lang);
+        if (!group) {
+          group = { lang, lines: [], start: cue.start, end: cue.end };
+          groups.set(lang, group);
+        }
+        group.lines.push(line);
+        group.start = Math.max(group.start, cue.start);
+        group.end = Math.min(group.end, cue.end);
+      }
     }
-    if (lines.length) groups.push({ lang: track.lang, lines });
   }
-  return groups;
+  // Stable visual order, independent of asynchronous track download order.
+  return [...groups.values()].sort((a, b) => languagePriority(a.lang) - languagePriority(b.lang))
+    .map((group) => ({ ...group, lines: [group.lines.join(" ")] }));
+}
+
+// Fit common cues on one row. Exceptionally long cues are presented as pages
+// within their original active window, rather than clipped or made illegible.
+export function fitSubtitleRow(text, width, baseSize, minSize, measure) {
+  const measured = measure(text, baseSize);
+  const fontSize = Math.max(minSize, Math.min(baseSize, measured > 0 ? baseSize * width / measured : baseSize));
+  if (measure(text, fontSize) <= width) return { fontSize, pages: [text] };
+  const pages = [];
+  const characters = Array.from(text);
+  let start = 0;
+  while (start < characters.length) {
+    let end = start + 1;
+    while (end < characters.length && measure(characters.slice(start, end + 1).join(""), fontSize) <= width) end++;
+    if (end < characters.length) {
+      for (let index = end - 1; index >= start + Math.floor((end - start) / 2); index--) {
+        if (/[\s,.!?，。！？、;；]/u.test(characters[index])) { end = index + 1; break; }
+      }
+    }
+    const page = characters.slice(start, end).join("").trim();
+    if (page) pages.push(page);
+    start = end;
+  }
+  return { fontSize, pages };
+}
+
+export function subtitleRowPage(pages, time, start, end) {
+  const progress = end > start ? (time - start) / (end - start) : 0;
+  return pages[Math.max(0, Math.min(pages.length - 1, Math.floor(progress * pages.length)))];
 }
