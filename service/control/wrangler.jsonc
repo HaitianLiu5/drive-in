@@ -54,7 +54,8 @@
   ]
   // Secrets (npx wrangler secret put …):
   //   NODE_SECRET               shared with the node; signs requests and media tokens
-  //   OWNER_INIT_CODE           one-time code to register the first passkey
   //   NODE_ACCESS_CLIENT_ID     only when NODE_TRANSPORT is "tunnel"
   //   NODE_ACCESS_CLIENT_SECRET only when NODE_TRANSPORT is "tunnel"
+  // The owner's first passkey (or a reset) needs no secret here: the home node
+  // issues a 6-digit pairing code with `npm run owner-code` (decision 16).
 }

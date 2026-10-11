@@ -5,23 +5,25 @@ import {
   verifyRegistrationResponse,
 } from "@simplewebauthn/server";
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
-import { randomToken, safeEqual, sha256, YoloError } from "@useyolo/core";
+import { randomToken, YoloError } from "@useyolo/core";
 import {
   addPasskey,
   countPasskeys,
+  deletePasskeysExcept,
   ensureOwner,
   getPasskey,
-  isInitCodeUsed,
   listPasskeys,
-  markInitCodeUsed,
   updatePasskeyCounter,
 } from "../store/users.js";
-import { readCookie } from "./session.js";
+import { readCookie, revokeAllSessions } from "./session.js";
 
-// Owner sign-in is passkey-only (decision 16). The first passkey, and any
-// recovery after losing every device, needs the one-time init code stored in
-// the OWNER_INIT_CODE Worker secret. Each code works once; rotate the secret
-// to register again. A signed-in owner may add more passkeys without a code.
+// Owner sign-in is passkey-only (decision 16). Without a session, registering
+// a passkey needs the 6-digit pairing code the home node prints for
+// `npm run owner-code`. The node checks the code and uses it up; nothing about
+// it is stored in Cloudflare, and the node's 5-attempt limit is what makes six
+// digits enough. A code registration is also the only recovery: the new
+// passkey replaces every other one and every owner session is revoked. A
+// signed-in owner may add more passkeys without a code.
 
 export const CHALLENGE_COOKIE = "__Host-yolo-webauthn";
 const CHALLENGE_TTL_SECONDS = 300;
@@ -50,25 +52,46 @@ async function takeChallenge(kv, request, kind) {
   return value;
 }
 
-// Is `code` the configured init code, and still unused?
-export async function checkInitCode(env, db, code) {
-  if (!env.OWNER_INIT_CODE || typeof code !== "string" || code.length < 16) return null;
-  const [given, expected] = await Promise.all([sha256(code.trim()), sha256(env.OWNER_INIT_CODE.trim())]);
-  if (!safeEqual(given, expected)) return null;
-  if (await isInitCodeUsed(db, expected)) return null;
-  return expected;
+function normalizeOwnerCode(code) {
+  const value = String(code ?? "").replace(/\s+/g, "");
+  if (!/^[0-9]{6}$/.test(value)) {
+    throw new YoloError("invalid_request", "Enter the 6-digit code that `npm run owner-code` prints on the home machine");
+  }
+  return value;
+}
+
+// Ask the node to check (`verify`) or use up (`consume`) a pairing code. Its
+// own errors (wrong, expired, too many attempts) pass through as they are.
+async function ownerCodeOnNode(node, action, code) {
+  try {
+    return await node.post(`/internal/v1/owner-code/${action}`, { code });
+  } catch (error) {
+    if (error?.code === "node_offline") {
+      throw new YoloError("node_offline", "Setting up a passkey needs the home media node online. Start it, then try again.");
+    }
+    if (error?.code === "not_found") {
+      throw new YoloError("node_offline", "The home media node does not issue pairing codes yet. Update and restart it.");
+    }
+    if (error?.code === "unauthorized") {
+      throw new YoloError("node_offline", "The home media node rejected this server. Check that both use the same NODE_SECRET.");
+    }
+    throw error;
+  }
 }
 
 export async function setupState(db) {
   return { hasPasskey: (await countPasskeys(db)) > 0 };
 }
 
-export async function registrationOptions({ env, db, kv, request, initCode, session }) {
-  const codeHash = session ? null : await checkInitCode(env, db, initCode);
-  if (!session && !codeHash) throw new YoloError("forbidden", "Init code is wrong or already used");
-  const owner = session ? { id: session.userId, displayName: "Owner" } : await ensureOwner(db);
+export async function registrationOptions({ env, db, kv, request, code, session, node }) {
+  // A code means a reset even when signed in, as the /login page says.
+  const viaCode = !session || String(code ?? "").trim() !== "";
+  if (viaCode) await ownerCodeOnNode(node, "verify", normalizeOwnerCode(code));
+  const owner = viaCode ? await ensureOwner(db) : { id: session.userId, displayName: "Owner" };
   const { rpID, rpName } = relyingParty(env, request);
-  const existing = await listPasskeys(db, owner.id);
+  // A code registration replaces every passkey, so let the authenticator
+  // overwrite one it may still hold.
+  const existing = viaCode ? [] : await listPasskeys(db, owner.id);
   const options = await generateRegistrationOptions({
     rpName,
     rpID,
@@ -79,17 +102,15 @@ export async function registrationOptions({ env, db, kv, request, initCode, sess
     excludeCredentials: existing.map((passkey) => ({ id: passkey.id, transports: passkey.transports })),
     authenticatorSelection: { residentKey: "required", userVerification: "required" },
   });
-  const setCookie = await saveChallenge(kv, { kind: "register", challenge: options.challenge, userId: owner.id, codeHash });
+  const setCookie = await saveChallenge(kv, { kind: "register", challenge: options.challenge, userId: owner.id, viaCode });
   return { options, setCookie };
 }
 
-export async function verifyRegistration({ env, db, kv, request, response, name }) {
+// `code` is sent again here rather than kept with the challenge, so the code
+// never sits in KV.
+export async function verifyRegistration({ env, db, kv, request, response, name, code, node }) {
   const pending = await takeChallenge(kv, request, "register");
   const { origin, rpID } = relyingParty(env, request);
-  // Re-check the code: it may have been used in another tab meanwhile.
-  if (pending.codeHash && (await isInitCodeUsed(db, pending.codeHash))) {
-    throw new YoloError("forbidden", "Init code is already used");
-  }
   const result = await verifyRegistrationResponse({
     response,
     expectedChallenge: pending.challenge,
@@ -98,6 +119,9 @@ export async function verifyRegistration({ env, db, kv, request, response, name 
     requireUserVerification: true,
   });
   if (!result.verified) throw new YoloError("unauthorized", "Passkey registration failed");
+  // Use the code up only after the passkey checks out, so a failed ceremony
+  // does not burn it.
+  if (pending.viaCode) await ownerCodeOnNode(node, "consume", normalizeOwnerCode(code));
   const { credential, credentialDeviceType, credentialBackedUp } = result.registrationInfo;
   await addPasskey(db, pending.userId, {
     id: credential.id,
@@ -108,7 +132,10 @@ export async function verifyRegistration({ env, db, kv, request, response, name 
     backedUp: credentialBackedUp,
     name: name ? String(name).slice(0, 100) : null,
   });
-  if (pending.codeHash) await markInitCodeUsed(db, pending.userId, pending.codeHash);
+  if (pending.viaCode) {
+    await deletePasskeysExcept(db, pending.userId, credential.id);
+    await revokeAllSessions(kv);
+  }
   return { userId: pending.userId };
 }
 

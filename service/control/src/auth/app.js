@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { errorBody, toYoloError } from "@useyolo/core";
+import { createNodeClient } from "../node-client.js";
 import { consentPage, homePage, loginPage, messagePage } from "./pages.js";
 import {
   authenticationOptions,
@@ -28,10 +29,12 @@ function authorizationFailure(error) {
   throw error;
 }
 
-export function createAuthApp() {
+// `nodeClient` is swappable for tests; the node checks owner pairing codes.
+export function createAuthApp({ nodeClient = createNodeClient } = {}) {
   const app = new Hono();
   const kv = (c) => c.env.OAUTH_KV;
   const db = (c) => c.env.DB;
+  const node = (c) => nodeClient(c.env);
 
   app.onError((error, c) => {
     const yolo = toYoloError(error);
@@ -48,18 +51,20 @@ export function createAuthApp() {
   app.get("/login", async (c) => c.html(loginPage(await setupState(db(c)))));
 
   app.post("/auth/passkey/register/options", async (c) => {
-    const { initCode } = await c.req.json().catch(() => ({}));
+    const { code } = await c.req.json().catch(() => ({}));
     const session = await getSession(kv(c), c.req.raw);
     const { options, setCookie } = await registrationOptions({
-      env: c.env, db: db(c), kv: kv(c), request: c.req.raw, initCode, session,
+      env: c.env, db: db(c), kv: kv(c), request: c.req.raw, code, session, node: node(c),
     });
     c.header("set-cookie", setCookie);
     return c.json(options);
   });
 
   app.post("/auth/passkey/register/verify", async (c) => {
-    const { response, name } = await c.req.json().catch(() => ({}));
-    const { userId } = await verifyRegistration({ env: c.env, db: db(c), kv: kv(c), request: c.req.raw, response, name });
+    const { response, name, code } = await c.req.json().catch(() => ({}));
+    const { userId } = await verifyRegistration({
+      env: c.env, db: db(c), kv: kv(c), request: c.req.raw, response, name, code, node: node(c),
+    });
     c.header("set-cookie", await createSession(kv(c), userId));
     return c.json({ ok: true });
   });

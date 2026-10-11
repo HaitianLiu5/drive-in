@@ -5,7 +5,8 @@ import { randomToken, sha256 } from "@useyolo/core";
 
 export const SESSION_COOKIE = "__Host-yolo-session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
-const kvKey = async (id) => `yolo:session:${await sha256(id)}`;
+const SESSION_PREFIX = "yolo:session:";
+const kvKey = async (id) => `${SESSION_PREFIX}${await sha256(id)}`;
 
 export function readCookie(header, name) {
   for (const part of String(header || "").split(";")) {
@@ -36,4 +37,17 @@ export async function destroySession(kv, request) {
   const id = readCookie(request.headers.get("cookie"), SESSION_COOKIE);
   if (id) await kv.delete(await kvKey(id));
   return cookie(SESSION_COOKIE, "", { maxAge: 0 });
+}
+
+// Sign the owner out everywhere; a pairing-code reset does this (decision 16).
+// KV lists are eventually consistent, which is fine for one owner's sessions.
+export async function revokeAllSessions(kv) {
+  const names = [];
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: SESSION_PREFIX, cursor });
+    names.push(...page.keys.map(({ name }) => name));
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  await Promise.all(names.map((name) => kv.delete(name)));
 }

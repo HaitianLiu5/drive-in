@@ -15,6 +15,7 @@ const STYLE = `
   strong { color: var(--fg); }
   label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; color: var(--fg); }
   input[type=text], input[type=password] { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; font: inherit; }
+  input.code { font-size: 24px; letter-spacing: 0.4em; text-align: center; font-variant-numeric: tabular-nums; }
   button { font: inherit; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .row { display: flex; gap: 10px; margin-top: 18px; }
@@ -44,13 +45,13 @@ async function post(path, body) {
   return data;
 }
 async function register() {
-  const initCode = document.getElementById("code")?.value || "";
-  const options = await post("/auth/passkey/register/options", { initCode });
+  const code = document.getElementById("code")?.value || "";
+  const options = await post("/auth/passkey/register/options", { code });
   options.challenge = b64(options.challenge);
   options.user.id = b64(options.user.id);
   options.excludeCredentials = (options.excludeCredentials || []).map((c) => ({ ...c, id: b64(c.id) }));
   const cred = await navigator.credentials.create({ publicKey: options });
-  await post("/auth/passkey/register/verify", { response: {
+  await post("/auth/passkey/register/verify", { code, response: {
     id: cred.id, rawId: s64(cred.rawId), type: cred.type, clientExtensionResults: cred.getClientExtensionResults(),
     authenticatorAttachment: cred.authenticatorAttachment,
     response: { clientDataJSON: s64(cred.response.clientDataJSON), attestationObject: s64(cred.response.attestationObject),
@@ -69,6 +70,9 @@ async function login() {
       signature: s64(cred.response.signature), userHandle: cred.response.userHandle ? s64(cred.response.userHandle) : undefined },
   } });
 }
+document.getElementById("code")?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") document.getElementById("register").click();
+});
 for (const [id, action] of [["register", register], ["login", login]]) {
   document.getElementById(id)?.addEventListener("click", async () => {
     status.textContent = "Waiting for your passkey…";
@@ -78,6 +82,10 @@ for (const [id, action] of [["register", register], ["login", login]]) {
 }
 `;
 
+// The 6-digit pairing code from `npm run owner-code` on the home machine.
+const CODE_INPUT = `<input type="text" id="code" class="code" inputmode="numeric" autocomplete="one-time-code"
+  pattern="[0-9]{6}" maxlength="6" placeholder="000000" aria-label="6-digit code">`;
+
 export function loginPage({ hasPasskey }) {
   const body = hasPasskey
     ? `<h1>Sign in to Yolo</h1>
@@ -85,13 +93,15 @@ export function loginPage({ hasPasskey }) {
        <div class="row"><button class="primary" id="login">Sign in with passkey</button></div>
        <p id="status"></p>
        <details><summary>Lost every passkey?</summary>
-         <p>Rotate the <code>OWNER_INIT_CODE</code> secret, then enter the new code to register a passkey.</p>
-         <input type="password" id="code" autocomplete="off" placeholder="Init code">
-         <div class="row"><button id="register">Register a passkey</button></div>
+         <p>On the home machine that runs the media node, run <code>npm run owner-code</code> and enter the 6-digit code it prints.
+           The new passkey replaces all others and signs out every session.</p>
+         ${CODE_INPUT}
+         <div class="row"><button id="register">Replace passkeys</button></div>
        </details>`
     : `<h1>Set up Yolo</h1>
-       <p>Enter the one-time init code from the <code>OWNER_INIT_CODE</code> Worker secret, then create a passkey. After this, the passkey is the only way to sign in.</p>
-       <input type="password" id="code" autocomplete="off" placeholder="Init code">
+       <p>On the home machine that runs the media node, run <code>npm run owner-code</code>, enter the 6-digit code it prints, then create a passkey.
+         After this, the passkey is the only way to sign in.</p>
+       ${CODE_INPUT}
        <div class="row"><button class="primary" id="register">Create passkey</button></div>
        <p id="status"></p>`;
   return page("Yolo sign-in", body, { script: WEBAUTHN_SCRIPT });

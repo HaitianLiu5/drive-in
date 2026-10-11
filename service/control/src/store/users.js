@@ -56,13 +56,9 @@ export async function updatePasskeyCounter(db, id, counter) {
   await db.prepare("UPDATE passkeys SET counter = ?, last_used_at = ? WHERE id = ?").bind(counter, Date.now(), id).run();
 }
 
-export async function isInitCodeUsed(db, codeHash) {
-  return Boolean(await db.prepare("SELECT 1 AS used FROM init_codes_used WHERE code_hash = ?").bind(codeHash).first());
-}
-
-export async function markInitCodeUsed(db, userId, codeHash) {
-  await db.prepare("INSERT OR IGNORE INTO init_codes_used (code_hash, user_id, used_at) VALUES (?, ?, ?)")
-    .bind(codeHash, userId, Date.now()).run();
+// A pairing-code reset keeps only the passkey it just registered.
+export async function deletePasskeysExcept(db, userId, keepId) {
+  await db.prepare("DELETE FROM passkeys WHERE user_id = ? AND id != ?").bind(userId, keepId).run();
 }
 
 export async function recordNodeSeen(db, userId, { id = "node_home", version = null }) {
