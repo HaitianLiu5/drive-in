@@ -1,5 +1,7 @@
 # Drive-In
 
+> **Archived.** Drive-In is now the Tesla client of [Yolo](https://github.com/HaitianLiu5/yolo), a private, agent-driven media service. Development continues there with the full history of this repository. The `@drive-in/cli` npm package is deprecated; agents use the Yolo MCP server instead.
+
 Drive-In is a self-hosted media player for Tesla browsers. Mediabunny decodes media with WebCodecs and renders frames to `<canvas>` instead of a native `<video>` element.
 
 > Use Drive-In only while parked or as a passenger. Obey local laws and only play media you are authorized to access. This project is not affiliated with Tesla or Plex.
